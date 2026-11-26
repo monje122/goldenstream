@@ -25,6 +25,12 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
   
+  <!-- Flatpickr (Calendario estricto DD/MM/YYYY en español y tema oscuro) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.css">
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/es.js"></script>
+  
   <script>
     tailwind.config = {
       darkMode: 'class',
@@ -60,6 +66,36 @@
     }
     ::-webkit-scrollbar-thumb:hover {
       background: #475569;
+    }
+
+    /* Flatpickr Dark Theme Customization */
+    .flatpickr-calendar {
+      background: #090d16 !important;
+      border: 1px solid #1e293b !important;
+      border-radius: 1rem !important;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.7), 0 8px 10px -6px rgba(0, 0, 0, 0.7) !important;
+      color: #f1f5f9 !important;
+      font-family: inherit !important;
+    }
+    .flatpickr-calendar.arrowTop:before, .flatpickr-calendar.arrowTop:after {
+      border-bottom-color: #090d16 !important;
+    }
+    .flatpickr-day.selected, .flatpickr-day.startRange, .flatpickr-day.endRange {
+      background: #4f46e5 !important;
+      border-color: #4f46e5 !important;
+      color: #ffffff !important;
+    }
+    .flatpickr-day:hover {
+      background: #1e293b !important;
+    }
+    .flatpickr-current-month .flatpickr-monthDropdown-months,
+    .flatpickr-current-month input.cur-year {
+      color: #f8fafc !important;
+      font-weight: bold !important;
+    }
+    span.flatpickr-weekday {
+      color: #94a3b8 !important;
+      font-weight: 600 !important;
     }
   </style>
 </head>
@@ -766,8 +802,8 @@
             </select>
           </div>
           <div>
-            <label class="block text-slate-400 font-semibold mb-1">Nueva Fecha de Corte</label>
-            <input id="renew-new-corte" type="date" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono outline-none focus:border-emerald-500">
+            <label class="block text-slate-400 font-semibold mb-1">Nueva Fecha de Corte (dd/mm/aaaa)</label>
+            <input id="renew-new-corte" type="text" placeholder="dd/mm/aaaa" maxlength="10" oninput="autoFormatDateInput(this, event)" onblur="normalizeDateInputOnBlur(this)" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono outline-none focus:border-emerald-500 text-center date-picker-input">
           </div>
         </div>
 
@@ -893,15 +929,15 @@
         <div class="grid grid-cols-3 gap-3 pt-2 border-t border-slate-800">
           <div>
             <label class="block text-slate-400 font-semibold mb-1">Fecha Entrega</label>
-            <input id="acc-delivery-date" onchange="autoComputeExpiryInForm()" type="date" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-slate-200 font-mono outline-none focus:border-indigo-500 text-xs">
+            <input id="acc-delivery-date" type="text" placeholder="dd/mm/aaaa" maxlength="10" oninput="autoFormatDateInput(this, event)" onblur="normalizeDateInputOnBlur(this)" onchange="autoComputeExpiryInForm()" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-slate-200 font-mono outline-none focus:border-indigo-500 text-xs text-center date-picker-input">
           </div>
           <div>
             <label class="block text-slate-400 font-semibold mb-1">Días Vigencia</label>
-            <input id="acc-days-input" onchange="autoComputeExpiryInForm()" type="number" value="30" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-slate-200 font-mono outline-none focus:border-indigo-500 text-xs">
+            <input id="acc-days-input" onchange="autoComputeExpiryInForm()" type="number" value="30" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-slate-200 font-mono outline-none focus:border-indigo-500 text-xs text-center">
           </div>
           <div>
             <label class="block text-slate-400 font-semibold mb-1">Fecha Corte *</label>
-            <input id="acc-expiry-date" type="date" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-slate-200 font-mono outline-none focus:border-indigo-500 text-xs">
+            <input id="acc-expiry-date" type="text" placeholder="dd/mm/aaaa" maxlength="10" oninput="autoFormatDateInput(this, event)" onblur="normalizeDateInputOnBlur(this)" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-slate-200 font-mono outline-none focus:border-indigo-500 text-xs text-center date-picker-input">
           </div>
         </div>
 
@@ -966,9 +1002,9 @@
           <div>
             <label class="block text-amber-300 font-semibold mb-1 flex items-center gap-1.5">
               <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
-              <span>Fecha Renovación Proveedor *</span>
+              <span>Fecha Renovación Proveedor (dd/mm/aaaa) *</span>
             </label>
-            <input id="edit-correo-expiry" type="date" required class="w-full bg-slate-950 border border-amber-500/40 rounded-xl px-3 py-2 text-slate-100 font-mono outline-none focus:border-amber-400">
+            <input id="edit-correo-expiry" type="text" placeholder="dd/mm/aaaa" maxlength="10" oninput="autoFormatDateInput(this, event)" onblur="normalizeDateInputOnBlur(this)" required class="w-full bg-slate-950 border border-amber-500/40 rounded-xl px-3 py-2 text-slate-100 font-mono outline-none focus:border-amber-400 text-center date-picker-input" title="Fecha Renovación Proveedor (dd/mm/aaaa)">
           </div>
         </div>
 
@@ -1044,12 +1080,12 @@
 
         <div class="grid grid-cols-2 gap-2">
           <div>
-            <label class="block text-slate-400 font-semibold mb-1">Fecha Entrega / Inicio</label>
-            <input id="assign-delivery-date" onchange="recalculateAssignExpiryDate()" type="date" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-slate-200 font-mono outline-none focus:border-indigo-500 text-xs">
+            <label class="block text-slate-400 font-semibold mb-1">Fecha Entrega / Inicio (dd/mm/aaaa)</label>
+            <input id="assign-delivery-date" type="text" placeholder="dd/mm/aaaa" maxlength="10" oninput="autoFormatDateInput(this, event)" onblur="normalizeDateInputOnBlur(this)" onchange="recalculateAssignExpiryDate()" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-slate-200 font-mono outline-none focus:border-indigo-500 text-xs text-center date-picker-input">
           </div>
           <div>
-            <label class="block text-slate-400 font-semibold mb-1">Fecha Vencimiento</label>
-            <input id="assign-expiry-date" type="date" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-slate-200 font-mono outline-none focus:border-indigo-500 text-xs">
+            <label class="block text-slate-400 font-semibold mb-1">Fecha Vencimiento (dd/mm/aaaa)</label>
+            <input id="assign-expiry-date" type="text" placeholder="dd/mm/aaaa" maxlength="10" oninput="autoFormatDateInput(this, event)" onblur="normalizeDateInputOnBlur(this)" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-slate-200 font-mono outline-none focus:border-indigo-500 text-xs text-center date-picker-input">
           </div>
         </div>
 
@@ -1082,8 +1118,8 @@
       <form onsubmit="saveSaleForm(event)" class="p-5 space-y-3 text-xs">
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-slate-400 font-semibold mb-1">Fecha</label>
-            <input id="sale-date" type="date" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono outline-none">
+            <label class="block text-slate-400 font-semibold mb-1">Fecha (dd/mm/aaaa)</label>
+            <input id="sale-date" type="text" placeholder="dd/mm/aaaa" maxlength="10" oninput="autoFormatDateInput(this, event)" onblur="normalizeDateInputOnBlur(this)" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono outline-none text-center date-picker-input">
           </div>
           <div>
             <label class="block text-slate-400 font-semibold mb-1">Plataforma</label>

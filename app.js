@@ -213,7 +213,12 @@ function openRenewProfileModal(accKey, perfilNum) {
   document.getElementById('renew-acc-id').textContent = `${acc.plataforma} (${acc.id}) - Perfil #${perfilNum}: ${p.cliente || 'Cliente'}`;
   document.getElementById('renew-current-corte').textContent = formatDisplayDate(p.fechaCorte || acc.fechaCorte);
   document.getElementById('renew-days').value = '30';
-  document.getElementById('renew-new-corte').value = formatYMD(newCorte);
+  const formattedNewCorte = formatDisplayDate(newCorte);
+  const renewInput = document.getElementById('renew-new-corte');
+  if (renewInput) {
+    renewInput.value = formattedNewCorte;
+    attachDatePicker(renewInput);
+  }
   document.getElementById('renew-sale-price').value = pricing.price.toFixed(2);
   document.getElementById('renew-investment').value = '0.00';
   document.getElementById('renew-log-sale').checked = true;
@@ -227,12 +232,13 @@ function recalculateAssignExpiryDate() {
   const delivInput = document.getElementById('assign-delivery-date');
   const expiryInput = document.getElementById('assign-expiry-date');
   if (!delivInput || !expiryInput) return;
-  const delivYMD = delivInput.value;
-  if (!delivYMD) return;
-  const parts = delivYMD.split('-');
-  const delivDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+  const delivVal = delivInput.value.trim();
+  if (!delivVal) return;
+  const delivDate = parseDMY(delivVal) || new Date();
   const newExpiry = addDaysToDate(delivDate, 30);
-  expiryInput.value = formatYMD(newExpiry);
+  const formattedExp = formatDisplayDate(newExpiry);
+  expiryInput.value = formattedExp;
+  if (expiryInput._flatpickr) expiryInput._flatpickr.setDate(formattedExp, false, 'd/m/Y');
 }
 
 // Búsqueda infalible de cuenta por _uid único o por id
@@ -428,6 +434,82 @@ function formatYMD(date) {
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const y = date.getFullYear();
   return `${y}-${m}-${d}`;
+}
+
+// Auto-formatea inputs de fecha a DD/MM/YYYY mientras el usuario escribe números
+function autoFormatDateInput(el, event) {
+  if (!el) return;
+  if (event && (event.inputType === 'deleteContentBackward' || event.inputType === 'deleteContentForward')) {
+    return;
+  }
+  
+  let val = el.value.replace(/[^\d\/]/g, '');
+  const digitsOnly = val.replace(/\D/g, '');
+  
+  if (digitsOnly.length > 8) {
+    val = digitsOnly.substring(0, 8);
+  }
+  
+  if (digitsOnly.length <= 2) {
+    val = digitsOnly;
+  } else if (digitsOnly.length <= 4) {
+    val = digitsOnly.substring(0, 2) + '/' + digitsOnly.substring(2);
+  } else {
+    val = digitsOnly.substring(0, 2) + '/' + digitsOnly.substring(2, 4) + '/' + digitsOnly.substring(4, 8);
+  }
+  
+  el.value = val;
+  if (el._flatpickr && digitsOnly.length === 8) {
+    const parsed = parseDMY(val);
+    if (parsed) {
+      el._flatpickr.setDate(parsed, false, 'd/m/Y');
+    }
+  }
+}
+
+// Normaliza el texto de fecha al perder foco (por ejemplo 1/5/2027 a 01/05/2027)
+function normalizeDateInputOnBlur(el) {
+  if (!el || !el.value.trim()) return;
+  const normalized = formatDisplayDate(el.value.trim());
+  if (normalized && normalized !== '—' && normalized !== 'Sin fecha') {
+    el.value = normalized;
+    if (el._flatpickr) {
+      const parsed = parseDMY(normalized);
+      if (parsed) el._flatpickr.setDate(parsed, false, 'd/m/Y');
+    }
+  }
+}
+
+// Vincula el selector de fecha Flatpickr con formato estricto DD/MM/YYYY en español
+function attachDatePicker(el) {
+  if (!el) return;
+  if (typeof flatpickr !== 'undefined') {
+    if (el._flatpickr) {
+      el._flatpickr.destroy();
+    }
+    return flatpickr(el, {
+      dateFormat: "d/m/Y",
+      allowInput: true,
+      disableMobile: true,
+      locale: (typeof flatpickr.l10ns !== 'undefined' && flatpickr.l10ns.es) ? flatpickr.l10ns.es : {
+        firstDayOfWeek: 1,
+        weekdays: {
+          shorthand: ['Do', 'Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá'],
+          longhand: ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+        },
+        months: {
+          shorthand: ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'],
+          longhand: ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+        }
+      },
+      onClose: function(selectedDates, dateStr, instance) {
+        if (dateStr) {
+          instance.input.value = dateStr;
+          instance.input.dispatchEvent(new Event('change'));
+        }
+      }
+    });
+  }
 }
 
 function addDaysToDate(date, days) {
@@ -1761,8 +1843,12 @@ function openEditCorreoModal(accId) {
   document.getElementById('edit-correo-id').value = acc.id;
   document.getElementById('edit-correo-email').value = acc.correo || '';
 
-  const expiry = parseDMY(acc.fechaCorte) || new Date();
-  document.getElementById('edit-correo-expiry').value = formatYMD(expiry);
+  const expiryFormatted = formatDisplayDate(acc.fechaCorte);
+  const expEl = document.getElementById('edit-correo-expiry');
+  if (expEl) {
+    expEl.value = expiryFormatted;
+    attachDatePicker(expEl);
+  }
 
   const cap = acc.capacidad || getAccountCapacity(acc);
   document.getElementById('edit-correo-capacidad').value = cap;
@@ -1784,15 +1870,14 @@ function renderEditCorreoPerfiles(acc) {
     const isOccupied = Boolean((p.cliente && p.cliente.trim() !== '') || (p.raw && p.raw.trim() !== ''));
     const clientName = p.cliente || p.raw || '';
     
-    // Si tiene cliente, mostrar su fecha individual de cliente. Si no tiene cliente, dejar la fecha vacía (NO copiar fecha de proveedor)
-    let pCorteYMD = '';
+    // Si tiene cliente, mostrar su fecha individual de cliente en DD/MM/YYYY. Si no tiene cliente, dejar vacío
+    let pCorteDisplay = '';
     if (isOccupied) {
       if (p.fechaCorte) {
-        const d = parseDMY(p.fechaCorte);
-        pCorteYMD = d ? formatYMD(d) : '';
+        pCorteDisplay = formatDisplayDate(p.fechaCorte);
       } else {
         // Por defecto 30 días para un cliente nuevo
-        pCorteYMD = formatYMD(addDaysToDate(new Date(), 30));
+        pCorteDisplay = formatDisplayDate(addDaysToDate(new Date(), 30));
       }
     }
 
@@ -1808,7 +1893,7 @@ function renderEditCorreoPerfiles(acc) {
           <input type="text" id="edit-slot-tel-${i}" value="${escapeHtml(p.telefono || '')}" placeholder="Teléfono..." class="w-full bg-slate-900 border border-slate-800 focus:border-indigo-500 rounded-lg px-2.5 py-1.5 text-slate-100 text-xs outline-none font-mono">
         </div>
         <div class="w-32 sm:w-36">
-          <input type="date" id="edit-slot-corte-${i}" value="${pCorteYMD}" class="w-full bg-slate-900 border border-slate-800 focus:border-indigo-500 rounded-lg px-2 py-1.5 text-slate-100 text-xs outline-none font-mono" title="Fecha de Vencimiento de este Cliente">
+          <input type="text" id="edit-slot-corte-${i}" value="${pCorteDisplay}" placeholder="dd/mm/aaaa" maxlength="10" oninput="autoFormatDateInput(this, event)" onblur="normalizeDateInputOnBlur(this)" class="w-full bg-slate-900 border border-slate-800 focus:border-indigo-500 rounded-lg px-2 py-1.5 text-slate-100 text-xs outline-none font-mono text-center date-picker-input" title="Fecha de Vencimiento de este Cliente (dd/mm/aaaa)">
         </div>
         <button type="button" onclick="clearEditSlot(${i})" class="p-1.5 hover:bg-slate-800 text-slate-500 hover:text-rose-400 rounded-lg transition shrink-0" title="Dejar este perfil libre">
           <i data-lucide="user-x" class="w-4 h-4"></i>
@@ -1819,6 +1904,11 @@ function renderEditCorreoPerfiles(acc) {
 
   container.innerHTML = html;
   lucide.createIcons();
+
+  for (let i = 1; i <= cap; i++) {
+    const el = document.getElementById('edit-slot-corte-' + i);
+    if (el) attachDatePicker(el);
+  }
 }
 
 function onEditSlotClienteChange(slotNum) {
@@ -1826,11 +1916,14 @@ function onEditSlotClienteChange(slotNum) {
   const corteEl = document.getElementById('edit-slot-corte-' + slotNum);
   if (!nameEl || !corteEl) return;
   const name = nameEl.value.trim();
-  if (name && !corteEl.value) {
-    // Si se escribe un cliente y la fecha estaba vacía, pre-llenar con 30 días a partir de hoy
-    corteEl.value = formatYMD(addDaysToDate(new Date(), 30));
+  if (name && !corteEl.value.trim()) {
+    // Si se escribe un cliente y la fecha estaba vacía, pre-llenar con 30 días a partir de hoy en DD/MM/YYYY
+    const defDate = formatDisplayDate(addDaysToDate(new Date(), 30));
+    corteEl.value = defDate;
+    if (corteEl._flatpickr) corteEl._flatpickr.setDate(defDate, false, 'd/m/Y');
   } else if (!name) {
     corteEl.value = '';
+    if (corteEl._flatpickr) corteEl._flatpickr.clear();
   }
 }
 
@@ -1840,7 +1933,10 @@ function clearEditSlot(slotNum) {
   const corte = document.getElementById('edit-slot-corte-' + slotNum);
   if (cli) cli.value = '';
   if (tel) tel.value = '';
-  if (corte) corte.value = '';
+  if (corte) {
+    corte.value = '';
+    if (corte._flatpickr) corte._flatpickr.clear();
+  }
 }
 
 function onEditCorreoCapacidadChange(newVal) {
@@ -1857,9 +1953,8 @@ function onEditCorreoCapacidadChange(newVal) {
     const corteEl = document.getElementById('edit-slot-corte-' + i);
     if (cliEl) {
       let formattedCorte = '';
-      if (corteEl && corteEl.value) {
-        const parts = corteEl.value.split('-');
-        formattedCorte = parts[2] + '/' + parts[1] + '/' + parts[0];
+      if (corteEl && corteEl.value.trim()) {
+        formattedCorte = formatDisplayDate(corteEl.value.trim());
       }
       currentSlots.push({
         num: i,
@@ -1899,16 +1994,15 @@ function saveEditCorreoForm(e) {
   if (!acc) return;
 
   const newEmail = document.getElementById('edit-correo-email').value.trim();
-  const newExpiryYMD = document.getElementById('edit-correo-expiry').value;
+  const expiryVal = document.getElementById('edit-correo-expiry').value.trim();
   const newCap = parseInt(document.getElementById('edit-correo-capacidad').value, 10) || acc.capacidad || 5;
 
-  if (!newExpiryYMD) {
+  if (!expiryVal) {
     showToast('La fecha de renovación con el proveedor es obligatoria', 'warning');
     return;
   }
 
-  const expParts = newExpiryYMD.split('-');
-  const formattedProviderExpiry = expParts[2] + '/' + expParts[1] + '/' + expParts[0];
+  const formattedProviderExpiry = formatDisplayDate(expiryVal);
 
   const perfiles = [];
   for (let i = 1; i <= newCap; i++) {
@@ -1917,22 +2011,21 @@ function saveEditCorreoForm(e) {
     const corteEl = document.getElementById('edit-slot-corte-' + i);
     const cliente = cliEl ? cliEl.value.trim() : '';
     const telefono = telEl ? telEl.value.trim() : '';
-    const corteVal = corteEl ? corteEl.value : '';
+    const corteVal = corteEl ? corteEl.value.trim() : '';
 
     const existingP = (acc.perfiles || []).find(x => x.num === i);
 
     if (cliente) {
       let formattedClientCorte = '';
       if (corteVal) {
-        const parts = corteVal.split('-');
-        formattedClientCorte = parts[2] + '/' + parts[1] + '/' + parts[0];
+        formattedClientCorte = formatDisplayDate(corteVal);
       } else if (existingP && existingP.fechaCorte) {
-        formattedClientCorte = existingP.fechaCorte;
+        formattedClientCorte = formatDisplayDate(existingP.fechaCorte);
       } else {
-        formattedClientCorte = formatDMY(addDaysToDate(new Date(), 30));
+        formattedClientCorte = formatDisplayDate(addDaysToDate(new Date(), 30));
       }
 
-      const clientEntrega = (existingP && existingP.fechaEntrega) ? existingP.fechaEntrega : formatDMY(new Date());
+      const clientEntrega = (existingP && existingP.fechaEntrega) ? existingP.fechaEntrega : formatDisplayDate(new Date());
       const clientDias = (existingP && existingP.dias) ? existingP.dias : 30;
 
       perfiles.push({
@@ -2096,7 +2189,12 @@ function openRenewModal(accId) {
   document.getElementById('renew-acc-id').textContent = `${acc.plataforma} (${acc.id})`;
   document.getElementById('renew-current-corte').textContent = formatDisplayDate(acc.fechaCorte);
   document.getElementById('renew-days').value = '30';
-  document.getElementById('renew-new-corte').value = formatYMD(newCorte);
+  const formattedNewCorte = formatDisplayDate(newCorte);
+  const renewInput = document.getElementById('renew-new-corte');
+  if (renewInput) {
+    renewInput.value = formattedNewCorte;
+    attachDatePicker(renewInput);
+  }
   document.getElementById('renew-sale-price').value = pricing.price.toFixed(2);
   document.getElementById('renew-investment').value = pricing.inv.toFixed(2);
   document.getElementById('renew-log-sale').checked = true;
@@ -2115,7 +2213,12 @@ function recalculateRenewDate() {
   
   const baseDate = (currCorte < today) ? today : currCorte;
   const newCorte = addDaysToDate(baseDate, days);
-  document.getElementById('renew-new-corte').value = formatYMD(newCorte);
+  const formattedNewCorte = formatDisplayDate(newCorte);
+  const renewInput = document.getElementById('renew-new-corte');
+  if (renewInput) {
+    renewInput.value = formattedNewCorte;
+    if (renewInput._flatpickr) renewInput._flatpickr.setDate(formattedNewCorte, false, 'd/m/Y');
+  }
   
   // Actualizar precio y costo de inversión guardados del tarifario para la duración
   const pricing = getCatalogPriceAndInvestment(acc.plataforma, days, acc);
@@ -2146,8 +2249,7 @@ function confirmRenewal() {
     return;
   }
   
-  const parts = newDateVal.split('-');
-  const formattedCorte = `${parts[2]}/${parts[1]}/${parts[0]}`;
+  const formattedCorte = formatDisplayDate(newDateVal);
   const todayFormatted = formatDMY(new Date());
 
   if (state.selectedProfileNum) {
@@ -2237,9 +2339,13 @@ function openAddAccountModal(presetPlatform) {
   document.getElementById('acc-owner-input').value = '';
   
   const today = new Date();
-  document.getElementById('acc-delivery-date').value = formatYMD(today);
+  const delivInput = document.getElementById('acc-delivery-date');
+  const expInput = document.getElementById('acc-expiry-date');
+  const formattedDeliv = formatDisplayDate(today);
+  const formattedExp = formatDisplayDate(addDaysToDate(today, 30));
+  if (delivInput) { delivInput.value = formattedDeliv; attachDatePicker(delivInput); }
   document.getElementById('acc-days-input').value = '30';
-  document.getElementById('acc-expiry-date').value = formatYMD(addDaysToDate(today, 30));
+  if (expInput) { expInput.value = formattedExp; attachDatePicker(expInput); }
   
   openModal('account-modal');
 }
@@ -2295,9 +2401,13 @@ function openEditAccountModal(accId) {
   const deliv = parseDMY(acc.fechaEntrega) || new Date();
   const expiry = parseDMY(acc.fechaCorte) || addDaysToDate(deliv, 30);
   
-  document.getElementById('acc-delivery-date').value = formatYMD(deliv);
+  const delivInput = document.getElementById('acc-delivery-date');
+  const expInput = document.getElementById('acc-expiry-date');
+  const formattedDeliv = formatDisplayDate(acc.fechaEntrega || deliv);
+  const formattedExp = formatDisplayDate(acc.fechaCorte || expiry);
+  if (delivInput) { delivInput.value = formattedDeliv; attachDatePicker(delivInput); }
   document.getElementById('acc-days-input').value = acc.dias || 30;
-  document.getElementById('acc-expiry-date').value = formatYMD(expiry);
+  if (expInput) { expInput.value = formattedExp; attachDatePicker(expInput); }
   
   const conf = PLATFORMS_CONFIG.find(p => p.name === norm);
   if (conf) {
@@ -2318,19 +2428,17 @@ function saveAccountForm(e) {
   const type = document.getElementById('acc-type-select').value;
   const owner = document.getElementById('acc-owner-input').value.trim();
   const profCount = parseInt(document.getElementById('acc-profiles-count').value, 10) || 1;
-  const delivYMD = document.getElementById('acc-delivery-date').value;
+  const delivVal = document.getElementById('acc-delivery-date').value.trim();
   const days = parseInt(document.getElementById('acc-days-input').value, 10) || 30;
-  const expiryYMD = document.getElementById('acc-expiry-date').value;
+  const expiryVal = document.getElementById('acc-expiry-date').value.trim();
   
   if (!id) {
     showToast('El ID de cuenta es obligatorio', 'warning');
     return;
   }
   
-  const delivParts = delivYMD.split('-');
-  const formattedDeliv = `${delivParts[2]}/${delivParts[1]}/${delivParts[0]}`;
-  const expParts = expiryYMD.split('-');
-  const formattedExpiry = `${expParts[2]}/${expParts[1]}/${expParts[0]}`;
+  const formattedDeliv = formatDisplayDate(delivVal);
+  const formattedExpiry = formatDisplayDate(expiryVal);
   
   if (origId) {
     const existing = findAccountByIdOrUid(origId); const idx = existing ? state.accounts.indexOf(existing) : -1;
@@ -2388,12 +2496,18 @@ function saveAccountForm(e) {
 }
 
 function autoComputeExpiryInForm() {
-  const delivVal = document.getElementById('acc-delivery-date').value;
+  const delivVal = document.getElementById('acc-delivery-date').value.trim();
   const days = parseInt(document.getElementById('acc-days-input').value, 10) || 30;
   if (!delivVal) return;
-  const deliv = new Date(delivVal + 'T00:00:00');
+  const deliv = parseDMY(delivVal);
+  if (!deliv) return;
   const exp = addDaysToDate(deliv, days);
-  document.getElementById('acc-expiry-date').value = formatYMD(exp);
+  const formattedExp = formatDisplayDate(exp);
+  const expInput = document.getElementById('acc-expiry-date');
+  if (expInput) {
+    expInput.value = formattedExp;
+    if (expInput._flatpickr) expInput._flatpickr.setDate(formattedExp, false, 'd/m/Y');
+  }
 }
 
 function generateNextId(platformName) {
@@ -2421,12 +2535,12 @@ function openAssignProfileModal(accId, perfilNum) {
   document.getElementById('assign-client-phone').value = '';
 
   const today = new Date();
-  const defDelivery = formatYMD(today);
-  const defExpiry = formatYMD(addDaysToDate(today, 30));
+  const defDelivery = formatDisplayDate(today);
+  const defExpiry = formatDisplayDate(addDaysToDate(today, 30));
   const elDeliv = document.getElementById('assign-delivery-date');
   const elExpiry = document.getElementById('assign-expiry-date');
-  if (elDeliv) elDeliv.value = defDelivery;
-  if (elExpiry) elExpiry.value = defExpiry;
+  if (elDeliv) { elDeliv.value = defDelivery; attachDatePicker(elDeliv); }
+  if (elExpiry) { elExpiry.value = defExpiry; attachDatePicker(elExpiry); }
   
   const datalist = document.getElementById('clients-datalist');
   if (datalist) {
@@ -2460,18 +2574,10 @@ function confirmAssignProfile() {
   ensureAccountProfileSlots(acc);
   const elDeliv = document.getElementById('assign-delivery-date');
   const elExpiry = document.getElementById('assign-expiry-date');
-  const delivYMD = elDeliv ? elDeliv.value : '';
-  const expiryYMD = elExpiry ? elExpiry.value : '';
-  let formattedDeliv = formatDMY(new Date());
-  let formattedExpiry = formatDMY(addDaysToDate(new Date(), 30));
-  if (delivYMD) {
-    const parts = delivYMD.split('-');
-    formattedDeliv = `${parts[2]}/${parts[1]}/${parts[0]}`;
-  }
-  if (expiryYMD) {
-    const parts = expiryYMD.split('-');
-    formattedExpiry = `${parts[2]}/${parts[1]}/${parts[0]}`;
-  }
+  const delivVal = elDeliv ? elDeliv.value.trim() : '';
+  const expiryVal = elExpiry ? elExpiry.value.trim() : '';
+  let formattedDeliv = delivVal ? formatDisplayDate(delivVal) : formatDisplayDate(new Date());
+  let formattedExpiry = expiryVal ? formatDisplayDate(expiryVal) : formatDisplayDate(addDaysToDate(new Date(), 30));
 
   const p = (acc.perfiles || []).find(x => x.num === num);
   if (p) {
@@ -3098,7 +3204,11 @@ function renderAccounting() {
 }
 
 function openAddSaleModal() {
-  document.getElementById('sale-date').value = formatYMD(new Date());
+  const saleInput = document.getElementById('sale-date');
+  if (saleInput) {
+    saleInput.value = formatDisplayDate(new Date());
+    attachDatePicker(saleInput);
+  }
   document.getElementById('sale-plat').value = 'Netflix (Personal)';
   document.getElementById('sale-type').value = 'Pantalla';
   const pricing = getCatalogPriceAndInvestment('Netflix (Personal)', 30);
@@ -3132,15 +3242,14 @@ function recalculateSaleModal() {
 
 function saveSaleForm(e) {
   e.preventDefault();
-  const dateVal = document.getElementById('sale-date').value;
+  const dateVal = document.getElementById('sale-date').value.trim();
   const plat = normalizePlatformName(document.getElementById('sale-plat').value);
   const type = document.getElementById('sale-type').value;
   const unitVal = parseFloat(document.getElementById('sale-price').value) || 0;
   const qty = parseInt(document.getElementById('sale-qty').value, 10) || 1;
   const inv = parseFloat(document.getElementById('sale-investment').value) || 0;
   
-  const parts = dateVal.split('-');
-  const formattedDate = `${parts[2]}/${parts[1]}/${parts[0]}`;
+  const formattedDate = formatDisplayDate(dateVal);
   const totalVentas = unitVal * qty;
   const totalGanancia = totalVentas - inv;
   
