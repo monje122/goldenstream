@@ -101,7 +101,13 @@ function ensureAccountProfileSlots(acc) {
   for (let i = 1; i <= cap; i++) {
     let existing = acc.perfiles.find(p => p.num === i);
     if (!existing) {
-      acc.perfiles.push({ num: i, cliente: '', telefono: '', pin: '', raw: '' });
+      acc.perfiles.push({ num: i, cliente: '', telefono: '', pin: '', raw: '', fechaEntrega: '', fechaCorte: '', dias: 30 });
+    } else {
+      if ((existing.cliente || existing.raw) && !existing.fechaCorte) {
+        existing.fechaCorte = acc.fechaCorte || '';
+        existing.fechaEntrega = acc.fechaEntrega || '';
+        existing.dias = acc.dias || 30;
+      }
     }
   }
   acc.perfiles.sort((a, b) => a.num - b.num);
@@ -118,6 +124,106 @@ function ensureAccountUniqueIds() {
     }
     ensureAccountProfileSlots(a);
   });
+}
+
+
+// Obtiene la fecha de vencimiento más próxima de una cuenta
+function getAccountEarliestDate(acc) {
+  ensureAccountProfileSlots(acc);
+  const activeProfiles = (acc.perfiles || []).filter(p => (p.cliente && p.cliente.trim() !== '') || (p.raw && p.raw.trim() !== ''));
+  if (activeProfiles.length === 0) return acc.fechaCorte;
+  let earliest = null;
+  let earliestTime = Infinity;
+  activeProfiles.forEach(p => {
+    const d = parseDMY(p.fechaCorte || acc.fechaCorte);
+    if (d && d.getTime() < earliestTime) {
+      earliestTime = d.getTime();
+      earliest = p.fechaCorte || acc.fechaCorte;
+    }
+  });
+  return earliest || acc.fechaCorte;
+}
+
+// Verifica si una cuenta coincide con el filtro de estado (vencidos, hoy, urgente, pronto, activos)
+function getAccountMatchesStatus(acc, statusFilter) {
+  if (statusFilter === 'todos') return true;
+  ensureAccountProfileSlots(acc);
+  const activeProfiles = (acc.perfiles || []).filter(p => (p.cliente && p.cliente.trim() !== '') || (p.raw && p.raw.trim() !== ''));
+  if (activeProfiles.length > 0) {
+    return activeProfiles.some(p => {
+      const d = getDaysUntil(p.fechaCorte || acc.fechaCorte);
+      return d.status === statusFilter;
+    });
+  }
+  const d = getDaysUntil(acc.fechaCorte);
+  return d.status === statusFilter;
+}
+
+// Alternar entre Vista por Cuentas y Vista por Pantallas/Clientes
+function setAccountsViewMode(mode) {
+  state.accountsViewMode = mode;
+  try { localStorage.setItem('jmc_accounts_view_mode', mode); } catch(e){}
+  updateViewModeButtons();
+  renderAccounts();
+}
+
+function updateViewModeButtons() {
+  const btnCuentas = document.getElementById('btn-view-mode-cuentas');
+  const btnPantallas = document.getElementById('btn-view-mode-pantallas');
+  if (!btnCuentas || !btnPantallas) return;
+  const isCuentas = (state.accountsViewMode || 'cuentas') === 'cuentas';
+  if (isCuentas) {
+    btnCuentas.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition bg-indigo-600 text-white shadow-md shadow-indigo-600/30';
+    btnPantallas.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200';
+  } else {
+    btnCuentas.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200';
+    btnPantallas.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition bg-indigo-600 text-white shadow-md shadow-indigo-600/30';
+  }
+}
+
+// Abre el modal para renovar un único perfil específico
+function openRenewProfileModal(accKey, perfilNum) {
+  const acc = findAccountByIdOrUid(accKey);
+  if (!acc) return;
+  ensureAccountProfileSlots(acc);
+  const p = (acc.perfiles || []).find(x => x.num === perfilNum);
+  if (!p) return;
+
+  state.selectedAccount = acc;
+  state.selectedProfileNum = perfilNum;
+
+  const currCorte = parseDMY(p.fechaCorte || acc.fechaCorte) || new Date();
+  const today = new Date();
+  today.setHours(0,0,0,0);
+
+  const baseDate = (currCorte < today) ? today : currCorte;
+  const newCorte = addDaysToDate(baseDate, 30);
+
+  const pricing = getCatalogPriceAndInvestment(acc.plataforma, 30, acc);
+
+  document.getElementById('renew-acc-id').textContent = `${acc.plataforma} (${acc.id}) - Perfil #${perfilNum}: ${p.cliente || 'Cliente'}`;
+  document.getElementById('renew-current-corte').textContent = p.fechaCorte || acc.fechaCorte || 'Sin fecha';
+  document.getElementById('renew-days').value = '30';
+  document.getElementById('renew-new-corte').value = formatYMD(newCorte);
+  document.getElementById('renew-sale-price').value = pricing.price.toFixed(2);
+  document.getElementById('renew-investment').value = '0.00';
+  document.getElementById('renew-log-sale').checked = true;
+
+  updateRenewProfitPreview();
+  openModal('renew-modal');
+}
+
+// Recalcular vencimiento al asignar perfil
+function recalculateAssignExpiryDate() {
+  const delivInput = document.getElementById('assign-delivery-date');
+  const expiryInput = document.getElementById('assign-expiry-date');
+  if (!delivInput || !expiryInput) return;
+  const delivYMD = delivInput.value;
+  if (!delivYMD) return;
+  const parts = delivYMD.split('-');
+  const delivDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+  const newExpiry = addDaysToDate(delivDate, 30);
+  expiryInput.value = formatYMD(newExpiry);
 }
 
 // Búsqueda infalible de cuenta por _uid único o por id
@@ -226,6 +332,8 @@ function getDefaultPrice(platformName, days = 30, acc = null) {
 
 // App State
 const state = {
+  accountsViewMode: localStorage.getItem('jmc_accounts_view_mode') || 'cuentas',
+  selectedProfileNum: null,
   accounts: [],
   clients: [],
   sales: [],
@@ -491,17 +599,30 @@ function getStats() {
   let totalPerfilesOcupados = 0;
   
   state.accounts.forEach(acc => {
-    const info = getDaysUntil(acc.fechaCorte);
-    if (info.status === 'vencidos') vencidos++;
-    else if (info.status === 'hoy') hoy++;
-    else if (info.status === 'urgente') urgente++;
-    else if (info.status === 'pronto') pronto++;
-    else if (info.status === 'activos') activos++;
-    
-    if (acc.perfiles && Array.isArray(acc.perfiles)) {
-      totalPerfilesOcupados += acc.perfiles.filter(p => p.cliente || p.raw).length;
-    } else if (acc.dueno) {
-      totalPerfilesOcupados += 1;
+    ensureAccountProfileSlots(acc);
+    const normPlat = normalizePlatformName(acc.plataforma);
+    const platConf = PLATFORMS_CONFIG.find(p => p.name === normPlat) || PLATFORMS_CONFIG[0];
+    const isFull = acc.tipo === 'CUENTA' || platConf.isPersonal || (acc.dueno && (!acc.perfiles || acc.perfiles.filter(p => p.cliente || p.raw).length === 0));
+
+    if (isFull) {
+      totalPerfilesOcupados++;
+      const info = getDaysUntil(acc.fechaCorte);
+      if (info.status === 'vencidos') vencidos++;
+      else if (info.status === 'hoy') hoy++;
+      else if (info.status === 'urgente') urgente++;
+      else if (info.status === 'pronto') pronto++;
+      else if (info.status === 'activos') activos++;
+    } else {
+      const activeProfiles = (acc.perfiles || []).filter(p => (p.cliente && p.cliente.trim() !== '') || (p.raw && p.raw.trim() !== ''));
+      activeProfiles.forEach(p => {
+        totalPerfilesOcupados++;
+        const info = getDaysUntil(p.fechaCorte || acc.fechaCorte);
+        if (info.status === 'vencidos') vencidos++;
+        else if (info.status === 'hoy') hoy++;
+        else if (info.status === 'urgente') urgente++;
+        else if (info.status === 'pronto') pronto++;
+        else if (info.status === 'activos') activos++;
+      });
     }
   });
   
@@ -606,18 +727,245 @@ function renderAccounts() {
   const container = document.getElementById('accounts-list');
   if (!container) return;
   
+  updateViewModeButtons();
+
+  const isPantallasMode = state.accountsViewMode === 'pantallas';
+
+  // ============================================================
+  // MODO 1: VISTA POR CLIENTES / PANTALLAS INDIVIDUALES
+  // ============================================================
+  if (isPantallasMode) {
+    const allSubscriptions = [];
+    state.accounts.forEach(acc => {
+      ensureAccountProfileSlots(acc);
+      const accKey = acc._uid || acc.id;
+      const normPlat = normalizePlatformName(acc.plataforma);
+      const platConf = PLATFORMS_CONFIG.find(p => p.name === normPlat) || PLATFORMS_CONFIG[0];
+      const isFull = acc.tipo === 'CUENTA' || platConf.isPersonal || (acc.dueno && (!acc.perfiles || acc.perfiles.filter(p => p.cliente || p.raw).length === 0));
+
+      if (isFull) {
+        const clientName = acc.dueno || (acc.perfiles?.[0]?.cliente) || 'Cuenta Completa';
+        const clientPhone = acc.perfiles?.[0]?.telefono || '';
+        const cDate = acc.fechaCorte || 'Sin fecha';
+        const dateInfo = getDaysUntil(cDate);
+        allSubscriptions.push({
+          acc,
+          accKey,
+          isFullAccount: true,
+          perfilNum: 'dueno',
+          perfilLabel: platConf.isPersonal ? 'Perfil Personal' : 'Cuenta Completa',
+          cliente: clientName,
+          telefono: clientPhone,
+          pin: '',
+          plataforma: normPlat,
+          platConf,
+          correo: acc.correo,
+          clave: acc.clave,
+          claveCorreo: acc.claveCorreo,
+          fechaEntrega: acc.fechaEntrega || '—',
+          dias: acc.dias || 30,
+          fechaCorte: cDate,
+          dateInfo,
+          standardPrice: getDefaultPrice(normPlat, acc.dias || 30)
+        });
+      } else {
+        (acc.perfiles || []).forEach(p => {
+          const hasClient = Boolean((p.cliente && p.cliente.trim() !== '') || (p.raw && p.raw.trim() !== ''));
+          if (hasClient) {
+            const clientName = p.cliente || p.raw;
+            const cDate = p.fechaCorte || acc.fechaCorte || 'Sin fecha';
+            const dateInfo = getDaysUntil(cDate);
+            allSubscriptions.push({
+              acc,
+              accKey,
+              isFullAccount: false,
+              perfilNum: p.num,
+              perfilLabel: `Perfil #${p.num}`,
+              cliente: clientName,
+              telefono: p.telefono || '',
+              pin: p.pin || '',
+              plataforma: normPlat,
+              platConf,
+              correo: acc.correo,
+              clave: acc.clave,
+              claveCorreo: acc.claveCorreo,
+              fechaEntrega: p.fechaEntrega || acc.fechaEntrega || '—',
+              dias: p.dias || acc.dias || 30,
+              fechaCorte: cDate,
+              dateInfo,
+              standardPrice: getDefaultPrice(normPlat, p.dias || acc.dias || 30)
+            });
+          }
+        });
+      }
+    });
+
+    let filtered = allSubscriptions.filter(item => {
+      if (state.platformFilter !== 'todas' && item.plataforma !== state.platformFilter) return false;
+      if (state.statusFilter !== 'todos' && item.dateInfo.status !== state.statusFilter) return false;
+      if (state.searchTerm) {
+        const q = state.searchTerm.toLowerCase();
+        const inCli = (item.cliente || '').toLowerCase().includes(q);
+        const inTel = (item.telefono || '').toLowerCase().includes(q);
+        const inEmail = (item.correo || '').toLowerCase().includes(q);
+        const inPlat = (item.plataforma || '').toLowerCase().includes(q);
+        const inId = (item.acc.id || '').toLowerCase().includes(q);
+        const inPerf = (item.perfilLabel || '').toLowerCase().includes(q);
+        return inCli || inTel || inEmail || inPlat || inId || inPerf;
+      }
+      return true;
+    });
+
+    filtered.sort((a, b) => {
+      const da = parseDMY(a.fechaCorte);
+      const db = parseDMY(b.fechaCorte);
+      if (!da && !db) return 0;
+      if (!da) return 1;
+      if (!db) return -1;
+      return da.getTime() - db.getTime();
+    });
+
+    const countEl = document.getElementById('results-count');
+    if (countEl) countEl.textContent = `${filtered.length} pantallas / clientes encontrados`;
+
+    if (filtered.length === 0) {
+      container.innerHTML = `
+        <div class="col-span-full text-center py-16 bg-slate-900/50 rounded-2xl border border-slate-800">
+          <i data-lucide="user-x" class="w-12 h-12 text-slate-500 mx-auto mb-3"></i>
+          <h3 class="text-lg font-semibold text-slate-300">No se encontraron clientes ni pantallas</h3>
+          <p class="text-sm text-slate-500 max-w-sm mx-auto mt-1">Prueba cambiando los filtros de estado o el término de búsqueda.</p>
+          <button onclick="resetFilters()" class="mt-4 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold transition">
+            Restablecer Filtros
+          </button>
+        </div>
+      `;
+      lucide.createIcons();
+      return;
+    }
+
+    let html = '';
+    filtered.forEach(item => {
+      const cardKey = `${item.accKey}_${item.perfilNum}`;
+      html += `
+        <div class="bg-slate-900/90 border border-slate-800 hover:border-slate-700 rounded-2xl p-4 shadow-xl transition flex flex-col justify-between gap-3 relative overflow-hidden group">
+          <div class="absolute top-0 left-0 right-0 h-1 ${item.dateInfo.status === 'vencidos' ? 'bg-red-500' : item.dateInfo.status === 'hoy' ? 'bg-amber-500' : item.dateInfo.status === 'urgente' ? 'bg-yellow-400' : 'bg-emerald-500'}"></div>
+
+          <div>
+            <!-- Encabezado: Servicio, Perfil y Vencimiento -->
+            <div class="flex items-start justify-between gap-2 mb-2.5">
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <span class="px-2 py-0.5 rounded-md text-[10px] font-bold ${item.platConf.badgeColor || 'bg-indigo-600/30 text-indigo-300'}">
+                    ${escapeHtml(item.plataforma)}
+                  </span>
+                  <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-800 text-slate-300 font-mono">
+                    ${item.perfilLabel}
+                  </span>
+                  <span class="font-mono text-xs text-slate-400 font-bold">#${escapeHtml(item.acc.id)}</span>
+                </div>
+                <!-- Nombre del Cliente Destacado -->
+                <h4 class="text-base font-black text-slate-100 mt-1.5 flex items-center gap-1.5 truncate">
+                  <i data-lucide="user" class="w-4 h-4 text-indigo-400 shrink-0"></i>
+                  <span class="truncate">${escapeHtml(item.cliente)}</span>
+                </h4>
+                ${item.telefono ? `
+                  <p class="text-xs text-slate-400 font-mono flex items-center gap-1 mt-0.5">
+                    <i data-lucide="phone" class="w-3 h-3 text-slate-500 shrink-0"></i>
+                    <span>${escapeHtml(item.telefono)}</span>
+                  </p>
+                ` : ''}
+              </div>
+
+              <!-- Badge Estado Vencimiento -->
+              <span class="px-2.5 py-1 rounded-full text-xs font-bold shrink-0 flex items-center gap-1 ${item.dateInfo.badgeClass}">
+                <i data-lucide="${item.dateInfo.icon}" class="w-3.5 h-3.5"></i>
+                <span>${item.dateInfo.label}</span>
+              </span>
+            </div>
+
+            <!-- Credenciales de acceso (con copiar rápido) -->
+            <div class="p-2.5 bg-slate-950/80 rounded-xl border border-slate-800/80 space-y-1.5 text-xs font-mono mb-2.5">
+              <div class="flex items-center justify-between">
+                <span class="text-slate-300 truncate mr-2" title="${escapeHtml(item.correo || '')}">
+                  <i data-lucide="mail" class="w-3.5 h-3.5 inline mr-1 text-sky-400"></i>${escapeHtml(item.correo || 'Sin correo')}
+                </span>
+                <button onclick="copyToClipboard('${escapeHtml(item.correo || '')}', 'Correo')" class="text-slate-500 hover:text-white p-1 hover:bg-slate-800 rounded transition shrink-0" title="Copiar correo">
+                  <i data-lucide="copy" class="w-3 h-3"></i>
+                </button>
+              </div>
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-1 text-slate-300">
+                  <i data-lucide="key" class="w-3.5 h-3.5 text-slate-500"></i>
+                  <span id="pwd-${cardKey}">••••••••</span>
+                  <span id="pwd-real-${cardKey}" class="hidden">${escapeHtml(item.clave || 'Sin clave')}</span>
+                  <button onclick="togglePassword('${cardKey}')" class="text-slate-500 hover:text-slate-300 ml-1">
+                    <i data-lucide="eye" id="pwd-icon-${cardKey}" class="w-3 h-3"></i>
+                  </button>
+                </div>
+                <button onclick="copyToClipboard('${escapeHtml(item.clave || '')}', 'Contraseña')" class="text-slate-500 hover:text-white p-1 hover:bg-slate-800 rounded transition shrink-0" title="Copiar contraseña">
+                  <i data-lucide="copy" class="w-3 h-3"></i>
+                </button>
+              </div>
+              ${item.pin ? `
+                <div class="text-[10px] text-amber-400 font-bold pt-1 border-t border-slate-800/60 flex items-center justify-between">
+                  <span>PIN Perfil: <strong class="bg-amber-500/20 px-1.5 py-0.5 rounded font-mono text-amber-300">${escapeHtml(item.pin)}</strong></span>
+                </div>
+              ` : ''}
+            </div>
+
+            <!-- Fila de Fechas del Cliente -->
+            <div class="grid grid-cols-3 gap-2 p-2 bg-slate-950/40 rounded-xl border border-slate-800/50 text-[11px] mb-1">
+              <div>
+                <span class="text-slate-500 block text-[9px] uppercase font-semibold">Entrega</span>
+                <span class="text-slate-300 font-medium truncate block">${escapeHtml(item.fechaEntrega)}</span>
+              </div>
+              <div>
+                <span class="text-slate-500 block text-[9px] uppercase font-semibold">Duración</span>
+                <span class="text-slate-300 font-medium">${item.dias} días</span>
+              </div>
+              <div>
+                <span class="text-slate-500 block text-[9px] uppercase font-semibold">Vencimiento</span>
+                <span class="font-bold ${item.dateInfo.status === 'vencidos' ? 'text-red-400' : item.dateInfo.status === 'hoy' ? 'text-amber-400' : 'text-slate-200'}">
+                  ${escapeHtml(item.fechaCorte)}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Botones de Acción de esta Pantalla -->
+          <div class="pt-2.5 border-t border-slate-800/80 flex items-center justify-between gap-2">
+            <button onclick="openRenewProfileModal('${item.accKey}', ${item.perfilNum})" class="flex-1 py-2 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 transition flex items-center justify-center gap-1.5 active:scale-95" title="Renovar suscripción de este cliente">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+              <span>Renovar ($${item.standardPrice})</span>
+            </button>
+            <button onclick="openWhatsAppModal('${item.accKey}', ${item.perfilNum})" class="p-2 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white rounded-xl transition flex items-center justify-center active:scale-95" title="Enviar WhatsApp de cobro">
+              <i data-lucide="message-circle" class="w-4 h-4"></i>
+            </button>
+            ${!item.isFullAccount ? `
+              <button onclick="freeProfile('${item.accKey}', ${item.perfilNum})" class="p-2 bg-slate-800 hover:bg-rose-900/50 text-slate-400 hover:text-rose-300 rounded-xl transition flex items-center justify-center active:scale-95" title="Liberar pantalla">
+                <i data-lucide="user-minus" class="w-4 h-4"></i>
+              </button>
+            ` : ''}
+          </div>
+        </div>
+      `;
+    });
+
+    container.innerHTML = html;
+    lucide.createIcons();
+    return;
+  }
+
+  // ============================================================
+  // MODO 2: VISTA POR CUENTAS (CON PERFILES Y VENCIMIENTOS INDIVIDUALES)
+  // ============================================================
   let filtered = state.accounts.filter(acc => {
     const platNorm = normalizePlatformName(acc.plataforma);
     if (state.platformFilter !== 'todas' && platNorm !== state.platformFilter) {
       return false;
     }
-    const dateInfo = getDaysUntil(acc.fechaCorte);
-    if (state.statusFilter !== 'todos') {
-      if (state.statusFilter === 'vencidos' && dateInfo.status !== 'vencidos') return false;
-      if (state.statusFilter === 'hoy' && dateInfo.status !== 'hoy') return false;
-      if (state.statusFilter === 'urgente' && dateInfo.status !== 'urgente') return false;
-      if (state.statusFilter === 'pronto' && dateInfo.status !== 'pronto') return false;
-      if (state.statusFilter === 'activos' && dateInfo.status !== 'activos') return false;
+    if (state.statusFilter !== 'todos' && !getAccountMatchesStatus(acc, state.statusFilter)) {
+      return false;
     }
     if (state.searchTerm) {
       const q = state.searchTerm.toLowerCase();
@@ -639,8 +987,8 @@ function renderAccounts() {
   });
   
   filtered.sort((a, b) => {
-    const da = parseDMY(a.fechaCorte);
-    const db = parseDMY(b.fechaCorte);
+    const da = parseDMY(getAccountEarliestDate(a));
+    const db = parseDMY(getAccountEarliestDate(b));
     if (!da && !db) return 0;
     if (!da) return 1;
     if (!db) return -1;
@@ -652,7 +1000,7 @@ function renderAccounts() {
   
   if (filtered.length === 0) {
     container.innerHTML = `
-      <div class="text-center py-16 bg-slate-900/50 rounded-2xl border border-slate-800">
+      <div class="col-span-full text-center py-16 bg-slate-900/50 rounded-2xl border border-slate-800">
         <i data-lucide="search-x" class="w-12 h-12 text-slate-500 mx-auto mb-3"></i>
         <h3 class="text-lg font-semibold text-slate-300">No se encontraron cuentas</h3>
         <p class="text-sm text-slate-500 max-w-sm mx-auto mt-1">Prueba cambiando los filtros de estado, plataforma o el término de búsqueda.</p>
@@ -667,9 +1015,12 @@ function renderAccounts() {
   
   let html = '';
   filtered.forEach(acc => {
+    ensureAccountProfileSlots(acc);
     const normPlat = normalizePlatformName(acc.plataforma);
     const platConf = PLATFORMS_CONFIG.find(p => p.name === normPlat) || PLATFORMS_CONFIG[0];
-    const dateInfo = getDaysUntil(acc.fechaCorte);
+    const earliestDate = getAccountEarliestDate(acc);
+    const earliestInfo = getDaysUntil(earliestDate);
+    const providerDateInfo = getDaysUntil(acc.fechaCorte);
     const standardPrice = getDefaultPrice(normPlat, acc.dias || 30);
     const accKey = acc._uid || acc.id;
     
@@ -701,38 +1052,61 @@ function renderAccounts() {
       `;
     } else {
       perfilesHtml = `
-        <div class="space-y-1.5">
+        <div class="space-y-2">
           ${perfiles.map(p => {
-            const hasClient = Boolean(p.cliente || p.raw);
-            return `
-              <div class="flex items-center justify-between p-2 rounded-lg ${hasClient ? 'bg-slate-800/80 border border-slate-700/60' : 'bg-slate-900/40 border border-dashed border-slate-800 text-slate-500'} text-xs">
-                <div class="flex items-center gap-2 overflow-hidden">
-                  <span class="w-5 h-5 rounded-md ${hasClient ? 'bg-indigo-600/30 text-indigo-300 font-bold' : 'bg-slate-800 text-slate-500'} flex items-center justify-center text-[10px]">
-                    #${p.num}
-                  </span>
-                  <div class="truncate">
-                    <span class="font-medium ${hasClient ? 'text-slate-200' : 'text-slate-500 italic'}">
-                      ${p.cliente || p.raw || 'Perfil Disponible'}
+            const hasClient = Boolean((p.cliente && p.cliente.trim() !== '') || (p.raw && p.raw.trim() !== ''));
+            const pCorte = p.fechaCorte || acc.fechaCorte || 'Sin fecha';
+            const pDateInfo = getDaysUntil(pCorte);
+            if (hasClient) {
+              return `
+                <div class="p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/60 flex flex-col gap-1.5 transition">
+                  <div class="flex items-center justify-between gap-2">
+                    <div class="flex items-center gap-2 overflow-hidden min-w-0">
+                      <span class="w-5 h-5 rounded-md bg-indigo-600/30 text-indigo-300 font-bold flex items-center justify-center text-[10px] shrink-0">
+                        #${p.num}
+                      </span>
+                      <div class="truncate">
+                        <span class="font-bold text-slate-200 text-xs truncate">${escapeHtml(p.cliente || p.raw)}</span>
+                        ${p.telefono ? `<span class="text-[10px] text-slate-400 font-mono ml-1.5">(${escapeHtml(p.telefono)})</span>` : ''}
+                      </div>
+                    </div>
+                    <div class="flex items-center gap-1 shrink-0">
+                      <button onclick="openWhatsAppModal('${accKey}', ${p.num})" class="p-1.5 bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white rounded-lg transition" title="Enviar WhatsApp a este cliente">
+                        <i data-lucide="message-circle" class="w-3.5 h-3.5"></i>
+                      </button>
+                      <button onclick="openRenewProfileModal('${accKey}', ${p.num})" class="px-2 py-1 bg-emerald-600/30 hover:bg-emerald-600 text-emerald-300 hover:text-white rounded-lg text-[10px] font-bold transition flex items-center gap-1 active:scale-95" title="Renovar solo este perfil ($${standardPrice})">
+                        <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+                        <span>Renovar</span>
+                      </button>
+                      <button onclick="freeProfile('${accKey}', ${p.num})" class="p-1.5 bg-slate-700 hover:bg-rose-900/50 text-slate-400 hover:text-rose-300 rounded-lg transition" title="Liberar perfil">
+                        <i data-lucide="user-minus" class="w-3.5 h-3.5"></i>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="flex items-center justify-between text-[11px] pt-1 border-t border-slate-700/40">
+                    <div class="flex items-center gap-1 text-slate-400 font-mono text-[10px]">
+                      <i data-lucide="calendar" class="w-3 h-3 text-slate-500"></i>
+                      <span>Vence: <strong class="text-slate-200">${escapeHtml(pCorte)}</strong></span>
+                    </div>
+                    <span class="px-2 py-0.5 rounded-md text-[10px] font-bold ${pDateInfo.badgeClass}">
+                      ${pDateInfo.label}
                     </span>
-                    ${p.telefono ? `<span class="text-[10px] text-slate-400 ml-1.5">(${p.telefono})</span>` : ''}
                   </div>
                 </div>
-                <div class="flex items-center gap-1">
-                  ${hasClient ? `
-                    <button onclick="openWhatsAppModal('${accKey}', ${p.num})" class="p-1 bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white rounded-md transition" title="Enviar WhatsApp a este perfil">
-                      <i data-lucide="message-circle" class="w-3.5 h-3.5"></i>
-                    </button>
-                    <button onclick="freeProfile('${accKey}', ${p.num})" class="p-1 bg-slate-700 text-slate-300 hover:bg-red-500 hover:text-white rounded-md transition" title="Liberar perfil">
-                      <i data-lucide="user-minus" class="w-3.5 h-3.5"></i>
-                    </button>
-                  ` : `
-                    <button onclick="openAssignProfileModal('${accKey}', ${p.num})" class="px-2 py-0.5 bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600 hover:text-white rounded-md text-[10px] font-medium transition">
-                      Asignar
-                    </button>
-                  `}
+              `;
+            } else {
+              return `
+                <div class="flex items-center justify-between p-2 rounded-xl bg-slate-900/40 border border-dashed border-slate-800 text-slate-500 text-xs">
+                  <div class="flex items-center gap-2">
+                    <span class="w-5 h-5 rounded-md bg-slate-800 text-slate-500 flex items-center justify-center text-[10px]">#${p.num}</span>
+                    <span class="italic text-[11px]">Perfil Disponible</span>
+                  </div>
+                  <button onclick="openAssignProfileModal('${accKey}', ${p.num})" class="px-2.5 py-1 bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600 hover:text-white rounded-lg text-xs font-semibold transition flex items-center gap-1 active:scale-95">
+                    <span>+ Asignar</span>
+                  </button>
                 </div>
-              </div>
-            `;
+              `;
+            }
           }).join('')}
         </div>
       `;
@@ -740,14 +1114,14 @@ function renderAccounts() {
     
     html += `
       <div class="bg-slate-900/80 border border-slate-800 hover:border-slate-700 rounded-2xl p-4 sm:p-5 shadow-lg transition-all flex flex-col justify-between gap-4 relative overflow-hidden group">
-        <div class="absolute top-0 left-0 right-0 h-1 ${dateInfo.status === 'vencidos' ? 'bg-red-500' : dateInfo.status === 'hoy' ? 'bg-amber-500' : dateInfo.status === 'urgente' ? 'bg-yellow-400' : 'bg-emerald-500'}"></div>
+        <div class="absolute top-0 left-0 right-0 h-1 ${earliestInfo.status === 'vencidos' ? 'bg-red-500' : earliestInfo.status === 'hoy' ? 'bg-amber-500' : earliestInfo.status === 'urgente' ? 'bg-yellow-400' : 'bg-emerald-500'}"></div>
         
         <div>
           <div class="flex items-start justify-between gap-2 mb-3">
             <div class="flex flex-col gap-1">
               <div class="flex items-center gap-2">
-                <span class="px-2.5 py-1 rounded-lg text-xs font-bold ${platConf.color} border">
-                  ${normPlat}
+                <span class="px-2.5 py-1 rounded-lg text-xs font-bold ${platConf.badgeColor || 'bg-indigo-600/30 text-indigo-300'}">
+                  ${escapeHtml(normPlat)}
                 </span>
                 <span class="text-xs font-mono font-bold text-slate-400 bg-slate-800 px-2 py-0.5 rounded-md">
                   ${acc.id}
@@ -758,9 +1132,9 @@ function renderAccounts() {
               </span>
             </div>
             <div class="flex items-center gap-1.5">
-              <span class="px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center gap-1 ${dateInfo.badgeClass}">
-                <i data-lucide="${dateInfo.icon}" class="w-3.5 h-3.5"></i>
-                ${dateInfo.label}
+              <span class="px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center gap-1 ${providerDateInfo.badgeClass}" title="Renovación con Proveedor">
+                <i data-lucide="truck" class="w-3.5 h-3.5"></i>
+                <span>Prov: ${escapeHtml(acc.fechaCorte || 'Sin fecha')}</span>
               </span>
             </div>
           </div>
@@ -794,26 +1168,9 @@ function renderAccounts() {
             ` : ''}
           </div>
           
-          <div class="grid grid-cols-3 gap-2 p-2 bg-slate-950/40 rounded-xl border border-slate-800/50 text-[11px] mb-3">
-            <div>
-              <span class="text-slate-500 block text-[9px] uppercase font-semibold">Entrega</span>
-              <span class="text-slate-300 font-medium">${acc.fechaEntrega || '—'}</span>
-            </div>
-            <div>
-              <span class="text-slate-500 block text-[9px] uppercase font-semibold">Duración</span>
-              <span class="text-slate-300 font-medium">${acc.dias || 30} días</span>
-            </div>
-            <div>
-              <span class="text-slate-500 block text-[9px] uppercase font-semibold">Vencimiento</span>
-              <span class="font-bold ${dateInfo.status === 'vencidos' ? 'text-red-400' : dateInfo.status === 'hoy' ? 'text-amber-400' : 'text-slate-200'}">
-                ${acc.fechaCorte || '—'}
-              </span>
-            </div>
-          </div>
-          
           <div class="mb-3">
-            <div class="flex items-center justify-between mb-1.5 text-[11px] font-semibold text-slate-400">
-              <span>Perfiles / Clientes</span>
+            <div class="flex items-center justify-between mb-2 text-[11px] font-semibold text-slate-400">
+              <span>Perfiles / Clientes & Vencimientos</span>
               <span class="text-[10px] text-slate-500">${perfiles.filter(p => p.cliente || p.raw).length} asignados</span>
             </div>
             ${perfilesHtml}
@@ -821,9 +1178,9 @@ function renderAccounts() {
         </div>
         
         <div class="pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
-          <button onclick="openRenewModal('${accKey}')" class="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-semibold shadow-md shadow-emerald-600/20 transition">
+          <button onclick="openRenewModal('${accKey}')" class="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition active:scale-95" title="Renovar cuenta completa con el proveedor">
             <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-            <span>Renovar ($${standardPrice})</span>
+            <span>Renovar Proveedor</span>
           </button>
           
           <button onclick="openEditAccountModal('${accKey}')" class="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl transition" title="Editar Cuenta">
@@ -1375,20 +1732,25 @@ function renderEditCorreoPerfiles(acc) {
 
   let html = '';
   for (let i = 1; i <= cap; i++) {
-    const p = (acc.perfiles || []).find(x => x.num === i) || { num: i, cliente: '', telefono: '', pin: '' };
+    const p = (acc.perfiles || []).find(x => x.num === i) || { num: i, cliente: '', telefono: '', pin: '', fechaCorte: '' };
     const isOccupied = (p.cliente && p.cliente.trim() !== '') || (p.raw && p.raw.trim() !== '');
     const clientName = p.cliente || p.raw || '';
+    const pCorte = p.fechaCorte || acc.fechaCorte || '';
+    const pCorteYMD = formatYMD(parseDMY(pCorte) || new Date());
 
     html += `
-      <div class="flex items-center gap-2 bg-slate-950/80 border ${isOccupied ? 'border-slate-800' : 'border-emerald-500/30'} rounded-xl p-2.5 transition">
+      <div class="flex items-center gap-2 bg-slate-950/80 border ${isOccupied ? 'border-slate-800' : 'border-emerald-500/30'} rounded-xl p-2.5 transition flex-wrap sm:flex-nowrap">
         <span class="w-8 h-8 rounded-lg ${isOccupied ? 'bg-indigo-600/20 text-indigo-400' : 'bg-emerald-600/20 text-emerald-400'} font-mono font-bold flex items-center justify-center shrink-0 text-xs">
           #${i}
         </span>
-        <div class="flex-1 min-w-0">
-          <input type="text" id="edit-slot-cliente-${i}" value="${escapeHtml(clientName)}" placeholder="Nombre del cliente asignado (o dejar libre...)" class="w-full bg-slate-900 border border-slate-800 focus:border-indigo-500 rounded-lg px-2.5 py-1.5 text-slate-100 text-xs outline-none">
+        <div class="flex-1 min-w-[130px]">
+          <input type="text" id="edit-slot-cliente-${i}" value="${escapeHtml(clientName)}" placeholder="Nombre del cliente..." class="w-full bg-slate-900 border border-slate-800 focus:border-indigo-500 rounded-lg px-2.5 py-1.5 text-slate-100 text-xs outline-none">
         </div>
-        <div class="w-28 sm:w-36">
-          <input type="text" id="edit-slot-tel-${i}" value="${escapeHtml(p.telefono || '')}" placeholder="Celular / WhatsApp..." class="w-full bg-slate-900 border border-slate-800 focus:border-indigo-500 rounded-lg px-2.5 py-1.5 text-slate-100 text-xs outline-none font-mono">
+        <div class="w-28 sm:w-32">
+          <input type="text" id="edit-slot-tel-${i}" value="${escapeHtml(p.telefono || '')}" placeholder="Teléfono..." class="w-full bg-slate-900 border border-slate-800 focus:border-indigo-500 rounded-lg px-2.5 py-1.5 text-slate-100 text-xs outline-none font-mono">
+        </div>
+        <div class="w-32 sm:w-36">
+          <input type="date" id="edit-slot-corte-${i}" value="${pCorteYMD}" class="w-full bg-slate-900 border border-slate-800 focus:border-indigo-500 rounded-lg px-2 py-1.5 text-slate-100 text-xs outline-none font-mono" title="Fecha de Vencimiento de este Perfil">
         </div>
         <button type="button" onclick="document.getElementById('edit-slot-cliente-${i}').value=''; document.getElementById('edit-slot-tel-${i}').value='';" class="p-1.5 hover:bg-slate-800 text-slate-500 hover:text-rose-400 rounded-lg transition shrink-0" title="Dejar este perfil libre">
           <i data-lucide="user-x" class="w-4 h-4"></i>
@@ -1507,21 +1869,28 @@ function openWhatsAppModal(accId, perfilIdentifier) {
     }
   }
   
+  let fechaCorteCliente = acc.fechaCorte || 'Sin fecha';
+  if (perfilIdentifier !== 'dueno') {
+    const p = (acc.perfiles || []).find(x => x.num === perfilIdentifier);
+    if (p && p.fechaCorte) fechaCorteCliente = p.fechaCorte;
+  }
+  
   const cleanPhone = sanitizePhone(clienteTelefono);
   state.whatsappData = {
     acc,
     clienteNombre,
     clienteTelefono,
     cleanPhone,
-    perfilLabel
+    perfilLabel,
+    fechaCorteCliente
   };
   
   document.getElementById('wa-client-name').value = clienteNombre;
   document.getElementById('wa-client-phone').value = cleanPhone;
   document.getElementById('wa-service-name').textContent = `${acc.plataforma} (${perfilLabel})`;
-  document.getElementById('wa-expiry-date').textContent = acc.fechaCorte || 'Sin fecha';
+  document.getElementById('wa-expiry-date').textContent = fechaCorteCliente;
   
-  const dateInfo = getDaysUntil(acc.fechaCorte);
+  const dateInfo = getDaysUntil(fechaCorteCliente);
   let templateType = 'aviso';
   if (dateInfo.status === 'vencidos') templateType = 'vencido';
   else if (dateInfo.status === 'hoy') templateType = 'hoy';
@@ -1536,7 +1905,7 @@ function updateWhatsAppMessageText(type) {
   if (!state.whatsappData) return;
   const { acc, clienteNombre, perfilLabel } = state.whatsappData;
   const name = document.getElementById('wa-client-name').value || clienteNombre || 'Estimado cliente';
-  const corte = acc.fechaCorte || 'pronto';
+  const corte = (state.whatsappData && state.whatsappData.fechaCorteCliente) || acc.fechaCorte || 'pronto';
   const price = getDefaultPrice(acc.plataforma, acc.dias || 30);
   
   let msg = '';
@@ -1581,6 +1950,7 @@ function openRenewModal(accId) {
   if (!acc) return;
   
   state.selectedAccount = acc;
+  state.selectedProfileNum = null;
   
   const currCorte = parseDMY(acc.fechaCorte) || new Date();
   const today = new Date();
@@ -1648,6 +2018,47 @@ function confirmRenewal() {
   const parts = newDateVal.split('-');
   const formattedCorte = `${parts[2]}/${parts[1]}/${parts[0]}`;
   const todayFormatted = formatDMY(new Date());
+
+  if (state.selectedProfileNum) {
+    ensureAccountProfileSlots(acc);
+    const p = (acc.perfiles || []).find(x => x.num === state.selectedProfileNum);
+    if (p) {
+      p.fechaEntrega = todayFormatted;
+      p.dias = days;
+      p.fechaCorte = formattedCorte;
+    }
+    saveAccounts();
+
+    const logSale = document.getElementById('renew-log-sale').checked;
+    if (logSale) {
+      const salePrice = parseFloat(document.getElementById('renew-sale-price').value) || 0;
+      const invPrice = parseFloat(document.getElementById('renew-investment').value) || 0;
+      const profit = salePrice - invPrice;
+
+      state.sales.push({
+        id: 'V_' + Date.now(),
+        fecha: todayFormatted,
+        cuentaId: acc.id,
+        plataforma: acc.plataforma,
+        perfil: `Perfil #${state.selectedProfileNum}`,
+        cliente: p ? (p.cliente || p.raw) : '',
+        tipo: 'PERFIL',
+        valorUnitario: salePrice,
+        cantidad: 1,
+        totalVenta: salePrice,
+        inversion: invPrice,
+        totalGanancia: profit,
+        nota: `Renovación Perfil #${state.selectedProfileNum} (${p ? (p.cliente || '') : ''}) +${days} días`
+      });
+      saveSales();
+    }
+
+    closeModal('renew-modal');
+    showToast(`¡Perfil #${state.selectedProfileNum} (${p ? (p.cliente || '') : ''}) renovado hasta ${formattedCorte}!`, 'success');
+    state.selectedProfileNum = null;
+    renderAll();
+    return;
+  }
   
   acc.fechaEntrega = todayFormatted;
   acc.dias = days;
@@ -1877,6 +2288,14 @@ function openAssignProfileModal(accId, perfilNum) {
   document.getElementById('assign-target-info').textContent = `${acc.plataforma} (${acc.id}) - Perfil #${perfilNum}`;
   document.getElementById('assign-client-name').value = '';
   document.getElementById('assign-client-phone').value = '';
+
+  const today = new Date();
+  const defDelivery = formatYMD(today);
+  const defExpiry = formatYMD(addDaysToDate(today, 30));
+  const elDeliv = document.getElementById('assign-delivery-date');
+  const elExpiry = document.getElementById('assign-expiry-date');
+  if (elDeliv) elDeliv.value = defDelivery;
+  if (elExpiry) elExpiry.value = defExpiry;
   
   const datalist = document.getElementById('clients-datalist');
   if (datalist) {
@@ -1907,10 +2326,29 @@ function confirmAssignProfile() {
   const acc = findAccountByIdOrUid(accId);
   if (!acc) return;
   
+  ensureAccountProfileSlots(acc);
+  const elDeliv = document.getElementById('assign-delivery-date');
+  const elExpiry = document.getElementById('assign-expiry-date');
+  const delivYMD = elDeliv ? elDeliv.value : '';
+  const expiryYMD = elExpiry ? elExpiry.value : '';
+  let formattedDeliv = formatDMY(new Date());
+  let formattedExpiry = formatDMY(addDaysToDate(new Date(), 30));
+  if (delivYMD) {
+    const parts = delivYMD.split('-');
+    formattedDeliv = `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  if (expiryYMD) {
+    const parts = expiryYMD.split('-');
+    formattedExpiry = `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+
   const p = (acc.perfiles || []).find(x => x.num === num);
   if (p) {
     p.cliente = name;
     p.telefono = phone;
+    p.fechaEntrega = formattedDeliv;
+    p.fechaCorte = formattedExpiry;
+    p.dias = 30;
     p.raw = phone ? `${name} - ${phone}` : name;
   }
   saveAccounts();
@@ -1920,13 +2358,13 @@ function confirmAssignProfile() {
     state.clients.push({
       nombre: name,
       telefono: phone,
-      servicios: [{ plataforma: acc.plataforma, cuentaId: acc.id, perfil: `Perfil #${num}`, fechaCorte: acc.fechaCorte }]
+      servicios: [{ plataforma: acc.plataforma, cuentaId: acc.id, perfil: `Perfil #${num}`, fechaCorte: formattedExpiry }]
     });
     saveClients();
   }
   
   closeModal('assign-profile-modal');
-  showToast(`Perfil #${num} asignado a ${name}`, 'success');
+  showToast(`Perfil #${num} asignado a ${name} (Vence: ${formattedExpiry})`, 'success');
   renderAll();
 }
 
