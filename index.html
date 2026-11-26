@@ -1,0 +1,1434 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GoldenPro - Gestor de Cuentas, Pantallas y Vencimientos</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <!-- Chart.js for Accounting Graphs -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <!-- SheetJS for Excel Export/Import -->
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+  
+  <!-- Firebase App & Firestore SDKs (Compat v10 for browser / GitHub Pages) -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              100: '#e0e7ff',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+              900: '#312e81',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  
+  <style>
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased selection:bg-indigo-600 selection:text-white">
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm"></div>
+
+  <!-- Top Navigation Header -->
+  <header class="bg-slate-900/90 border-b border-slate-800 sticky top-0 z-30 backdrop-blur-md">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-16">
+        
+        <!-- Logo & Title -->
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 via-yellow-400 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/30 text-slate-950 font-black text-xl tracking-wider">
+            GP
+          </div>
+          <div>
+            <h1 class="text-base sm:text-lg font-black tracking-tight flex items-center gap-2">
+              <span class="bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-500 bg-clip-text text-transparent font-extrabold tracking-wide">GOLDENPRO</span>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">STREAMING</span>
+            </h1>
+            <p class="text-[11px] text-slate-400 hidden sm:block">Control inteligente de pantallas, suscripciones y cobros</p>
+          </div>
+        </div>
+
+        <!-- Center Tabs -->
+        <nav class="hidden md:flex items-center p-1 bg-slate-950/80 rounded-xl border border-slate-800">
+          <button id="tab-btn-cuentas" onclick="switchTab('cuentas')" class="nav-tab px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white shadow-lg transition flex items-center gap-1.5">
+            <i data-lucide="tv" class="w-4 h-4"></i>
+            <span>Cuentas & Vencimientos</span>
+          </button>
+          <button id="tab-btn-correos" onclick="switchTab('correos')" class="nav-tab px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5" title="Disponibilidad de perfiles por correo">
+            <i data-lucide="mail" class="w-4 h-4 text-sky-400"></i>
+            <span>Correos & Disponibilidad</span>
+          </button>
+          <button id="tab-btn-tarifario_ganancias" onclick="switchTab('tarifario_ganancias')" class="nav-tab px-3.5 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5">
+            <i data-lucide="calculator" class="w-4 h-4 text-emerald-400"></i>
+            <span>Tarifario & Ganancias</span>
+          </button>
+          <button id="tab-btn-clientes" onclick="switchTab('clientes')" class="nav-tab px-3.5 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5">
+            <i data-lucide="users" class="w-4 h-4"></i>
+            <span>Clientes</span>
+          </button>
+          <button id="tab-btn-contabilidad" onclick="switchTab('contabilidad')" class="nav-tab px-3.5 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5">
+            <i data-lucide="trending-up" class="w-4 h-4"></i>
+            <span>Finanzas</span>
+          </button>
+        </nav>
+
+        <!-- Right Quick Actions -->
+        <div class="flex items-center gap-2">
+          <!-- Firebase Cloud Sync Button -->
+          <button id="btn-cloud-sync" onclick="openFirebaseModal()" class="flex items-center gap-1.5 px-3 py-2 bg-slate-800/90 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl text-xs font-bold transition shadow-sm group" title="Sincronización en la Nube (Firebase)">
+            <i data-lucide="cloud" id="icon-cloud-status" class="w-4 h-4 text-amber-400 group-hover:scale-110 transition"></i>
+            <span id="text-cloud-status" class="hidden lg:inline text-slate-300">Nube</span>
+            <span id="badge-cloud-dot" class="w-2 h-2 rounded-full bg-amber-400"></span>
+          </button>
+
+          <!-- WhatsApp Promo Catalog Button -->
+          <button onclick="copyPriceListToWhatsApp()" class="flex items-center gap-1.5 px-3 py-2 bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white border border-emerald-500/30 rounded-xl text-xs font-bold transition shadow-sm" title="Copiar lista de precios para enviar por WhatsApp">
+            <i data-lucide="message-circle" class="w-4 h-4"></i>
+            <span class="hidden sm:inline">Copiar Tarifario WA</span>
+          </button>
+
+          <!-- New Account Button -->
+          <button onclick="openAddAccountModal()" class="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-600/20 transition">
+            <i data-lucide="plus-circle" class="w-4 h-4"></i>
+            <span class="hidden sm:inline">Nueva Cuenta</span>
+          </button>
+
+          <!-- Backup / Excel Button -->
+          <button onclick="openModal('backup-modal')" class="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl transition" title="Copias de Seguridad y Excel">
+            <i data-lucide="hard-drive-download" class="w-4 h-4"></i>
+          </button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Mobile Subnav Bar -->
+    <div class="md:hidden flex items-center justify-around border-t border-slate-800/80 bg-slate-950/60 p-2 text-xs overflow-x-auto gap-1">
+      <button onclick="switchTab('cuentas')" class="flex items-center gap-1 text-slate-300 font-semibold py-1 px-2 rounded-lg whitespace-nowrap">
+        <i data-lucide="tv" class="w-4 h-4"></i> Cuentas
+      </button>
+      <button onclick="switchTab('correos')" class="flex items-center gap-1 text-sky-400 font-semibold py-1 px-2 rounded-lg whitespace-nowrap">
+        <i data-lucide="mail" class="w-4 h-4"></i> Correos
+      </button>
+      <button onclick="switchTab('tarifario_ganancias')" class="flex items-center gap-1 text-emerald-400 font-semibold py-1 px-2 rounded-lg whitespace-nowrap">
+        <i data-lucide="calculator" class="w-4 h-4"></i> Tarifario
+      </button>
+      <button onclick="switchTab('clientes')" class="flex items-center gap-1 text-slate-400 font-medium py-1 px-2 rounded-lg whitespace-nowrap">
+        <i data-lucide="users" class="w-4 h-4"></i> Clientes
+      </button>
+      <button onclick="switchTab('contabilidad')" class="flex items-center gap-1 text-slate-400 font-medium py-1 px-2 rounded-lg whitespace-nowrap">
+        <i data-lucide="trending-up" class="w-4 h-4"></i> Finanzas
+      </button>
+      <button onclick="openFirebaseModal()" class="flex items-center gap-1 text-amber-400 font-semibold py-1 px-2 rounded-lg whitespace-nowrap">
+        <i data-lucide="cloud" class="w-4 h-4"></i> Nube
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+    <!-- VIEW 1: CUENTAS Y PANTALLAS -->
+    <div id="view-cuentas" class="space-y-6">
+
+      <!-- Urgent Attention Alert Banner -->
+      <div id="urgent-banner" class="hidden"></div>
+
+      <!-- KPI Status Cards (Click to Filter) -->
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        
+        <!-- Total Card -->
+        <div id="card-filter-todos" onclick="setStatusFilter('todos')" class="status-card bg-slate-900/80 border border-slate-800 hover:border-slate-700 rounded-2xl p-3.5 cursor-pointer transition shadow-md group">
+          <div class="flex items-center justify-between text-slate-400 mb-1">
+            <span class="text-xs font-semibold">Total Cuentas</span>
+            <i data-lucide="layers" class="w-4 h-4 text-slate-500 group-hover:text-indigo-400 transition"></i>
+          </div>
+          <div id="kpi-total" class="text-2xl font-black text-slate-100 font-mono">0</div>
+          <span class="text-[10px] text-slate-500">Ver todas</span>
+        </div>
+
+        <!-- 🔴 Vencidas -->
+        <div id="card-filter-vencidos" onclick="setStatusFilter('vencidos')" class="status-card bg-red-950/20 border border-red-500/30 hover:border-red-500/60 rounded-2xl p-3.5 cursor-pointer transition shadow-md group">
+          <div class="flex items-center justify-between text-red-400 mb-1">
+            <span class="text-xs font-bold flex items-center gap-1">
+              <span class="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+              Vencidas
+            </span>
+            <i data-lucide="alert-octagon" class="w-4 h-4 text-red-400"></i>
+          </div>
+          <div id="kpi-vencidos" class="text-2xl font-black text-red-400 font-mono">0</div>
+          <span class="text-[10px] text-red-400/80 font-medium">Cobro / Corte urgente</span>
+        </div>
+
+        <!-- 🟠 Vencen Hoy -->
+        <div id="card-filter-hoy" onclick="setStatusFilter('hoy')" class="status-card bg-amber-950/20 border border-amber-500/30 hover:border-amber-500/60 rounded-2xl p-3.5 cursor-pointer transition shadow-md group">
+          <div class="flex items-center justify-between text-amber-400 mb-1">
+            <span class="text-xs font-bold">Vencen Hoy</span>
+            <i data-lucide="bell-ring" class="w-4 h-4 text-amber-400"></i>
+          </div>
+          <div id="kpi-hoy" class="text-2xl font-black text-amber-400 font-mono">0</div>
+          <span class="text-[10px] text-amber-400/80 font-medium">Recordar hoy</span>
+        </div>
+
+        <!-- 🟡 Próximos 3 Días -->
+        <div id="card-filter-urgente" onclick="setStatusFilter('urgente')" class="status-card bg-yellow-950/20 border border-yellow-500/30 hover:border-yellow-500/60 rounded-2xl p-3.5 cursor-pointer transition shadow-md group">
+          <div class="flex items-center justify-between text-yellow-400 mb-1">
+            <span class="text-xs font-semibold">1 a 3 Días</span>
+            <i data-lucide="clock" class="w-4 h-4 text-yellow-400"></i>
+          </div>
+          <div id="kpi-urgente" class="text-2xl font-black text-yellow-400 font-mono">0</div>
+          <span class="text-[10px] text-yellow-500/80">Aviso previo</span>
+        </div>
+
+        <!-- 🔵 4 a 7 Días -->
+        <div id="card-filter-pronto" onclick="setStatusFilter('pronto')" class="status-card bg-blue-950/20 border border-blue-500/30 hover:border-blue-500/60 rounded-2xl p-3.5 cursor-pointer transition shadow-md group">
+          <div class="flex items-center justify-between text-blue-400 mb-1">
+            <span class="text-xs font-semibold">4 a 7 Días</span>
+            <i data-lucide="calendar" class="w-4 h-4 text-blue-400"></i>
+          </div>
+          <div id="kpi-pronto" class="text-2xl font-black text-blue-400 font-mono">0</div>
+          <span class="text-[10px] text-blue-400/80">Esta semana</span>
+        </div>
+
+        <!-- 🟢 Activas -->
+        <div id="card-filter-activos" onclick="setStatusFilter('activos')" class="status-card bg-emerald-950/20 border border-emerald-500/30 hover:border-emerald-500/60 rounded-2xl p-3.5 cursor-pointer transition shadow-md group">
+          <div class="flex items-center justify-between text-emerald-400 mb-1">
+            <span class="text-xs font-semibold">Activas</span>
+            <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i>
+          </div>
+          <div id="kpi-activos" class="text-2xl font-black text-emerald-400 font-mono">0</div>
+          <span class="text-[10px] text-emerald-400/80">> 7 días vigentes</span>
+        </div>
+
+      </div>
+
+      <!-- Search & Filters Bar -->
+      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-3">
+        <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+          
+          <!-- Search Input -->
+          <div class="relative flex-1">
+            <i data-lucide="search" class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"></i>
+            <input id="search-input" type="text" placeholder="Buscar por cliente, teléfono (0424...), correo, servicio o ID (PNET1, NPERS1)..." 
+              class="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-xl pl-10 pr-4 py-2.5 text-xs sm:text-sm text-slate-100 placeholder-slate-500 outline-none transition">
+          </div>
+
+          <!-- Quick Actions / Reset -->
+          <div class="flex items-center gap-2">
+            <span id="results-count" class="text-xs text-slate-400 font-mono whitespace-nowrap">0 cuentas</span>
+            <button onclick="resetFilters()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 whitespace-nowrap" title="Restablecer todos los filtros">
+              <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+              <span>Limpiar Filtros</span>
+            </button>
+          </div>
+
+        </div>
+
+        <!-- Platform Pills Scrollable Row -->
+        <div class="pt-2 border-t border-slate-800/60">
+          <div id="platform-pills" class="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+            <!-- Rendered by JS -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Accounts Grid List -->
+      <div id="accounts-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <!-- Rendered by JS -->
+      </div>
+
+    </div>
+
+    <!-- VIEW 2: INVENTARIO DE CORREOS & DISPONIBILIDAD DE PANTALLAS (FULL / DISPONIBLES / RENOVACIÓN PROVEEDOR) -->
+    <div id="view-correos" class="hidden space-y-6">
+
+      <!-- Header & Intro -->
+      <div class="bg-gradient-to-r from-sky-950/60 via-slate-900 to-indigo-950/60 border border-sky-500/30 rounded-3xl p-5 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div>
+          <div class="flex items-center gap-2 mb-1">
+            <span class="px-3 py-1 rounded-full text-xs font-bold bg-sky-600/30 text-sky-400 border border-sky-500/40">
+              📧 CONTROL DE CORREOS & RENOVACIÓN CON PROVEEDOR
+            </span>
+          </div>
+          <h2 class="text-xl font-black text-slate-100">Inventario de Correos y Disponibilidad</h2>
+          <p class="text-xs text-slate-300 max-w-2xl mt-1">
+            Tabla organizada en filas y columnas sin contraseñas a la vista. Te muestra si el correo está <strong class="text-rose-400 font-bold">FULL</strong> o cuántas pantallas tienes <strong class="text-emerald-400 font-bold">disponibles</strong>, y la <strong class="text-amber-300 font-bold">fecha exacta en la que debes renovar con el proveedor</strong>.
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button onclick="openAddAccountModal()" class="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-indigo-600/30 active:scale-95">
+            <i data-lucide="plus-circle" class="w-4 h-4"></i>
+            <span>Agregar Correo</span>
+          </button>
+          <button onclick="copyAvailableEmailsToClipboard()" class="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-sky-400 border border-slate-700 hover:border-sky-500 rounded-xl text-xs font-bold transition flex items-center gap-1.5" title="Copiar lista de correos con pantallas disponibles">
+            <i data-lucide="copy" class="w-4 h-4"></i>
+            <span class="hidden sm:inline">Copiar Disponibles</span>
+          </button>
+          <button onclick="exportCorreosToCSV()" class="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 hover:border-emerald-500 rounded-xl text-xs font-bold transition flex items-center gap-1.5" title="Descargar inventario en formato Excel / CSV">
+            <i data-lucide="download" class="w-4 h-4"></i>
+            <span class="hidden sm:inline">Descargar Excel</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- KPI Summary Cards for Correos -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-lg">
+          <div class="flex items-center justify-between text-slate-400 mb-1 text-xs">
+            <span>Pantallas Disponibles para Venta</span>
+            <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i>
+          </div>
+          <div id="correos-kpi-disponibles" class="text-2xl font-black text-emerald-400 font-mono">0 libres</div>
+          <span class="text-[10px] text-slate-400 font-medium">Listas para asignar a clientes</span>
+        </div>
+
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-lg">
+          <div class="flex items-center justify-between text-slate-400 mb-1 text-xs">
+            <span>Correos al 100% (FULL)</span>
+            <i data-lucide="lock" class="w-4 h-4 text-rose-400"></i>
+          </div>
+          <div id="correos-kpi-full" class="text-2xl font-black text-rose-400 font-mono">0 FULL</div>
+          <span class="text-[10px] text-slate-400 font-medium">Capacidad completa ocupada</span>
+        </div>
+
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-lg">
+          <div class="flex items-center justify-between text-slate-400 mb-1 text-xs">
+            <span>Por Renovar con Proveedor</span>
+            <i data-lucide="clock" class="w-4 h-4 text-amber-400"></i>
+          </div>
+          <div id="correos-kpi-renovar" class="text-2xl font-black text-amber-400 font-mono">0 por renovar</div>
+          <span class="text-[10px] text-slate-400 font-medium">Vencidos o por vencer pronto</span>
+        </div>
+
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-lg">
+          <div class="flex items-center justify-between text-slate-400 mb-1 text-xs">
+            <span>Total Correos Registrados</span>
+            <i data-lucide="mail" class="w-4 h-4 text-indigo-400"></i>
+          </div>
+          <div id="correos-kpi-total" class="text-2xl font-black text-indigo-400 font-mono">0 correos</div>
+          <span id="correos-kpi-ocupadas" class="text-[10px] text-slate-400 font-medium">0 perfiles ocupados en total</span>
+        </div>
+
+      </div>
+
+      <!-- Filters & Search Toolbar -->
+      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-xl flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+        
+        <!-- Search bar -->
+        <div class="relative flex-1">
+          <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+          <input id="correos-search" type="text" placeholder="Buscar por correo, ID (PNET...), plataforma o cliente asignado..." class="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 outline-none focus:border-sky-500">
+        </div>
+
+        <!-- Filter by Platform -->
+        <div class="flex items-center gap-2">
+          <select id="correos-plat-filter" onchange="filterCorreosList()" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 outline-none focus:border-sky-500">
+            <option value="todas">Todas las Plataformas</option>
+          </select>
+
+          <!-- Filter by Status -->
+          <select id="correos-status-filter" onchange="filterCorreosList()" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 outline-none focus:border-sky-500 font-semibold">
+            <option value="todos">Todos los Estados</option>
+            <option value="disponibles">🟢 Con Disponibles (Libres)</option>
+            <option value="full">🔴 Solo FULL (Llenos)</option>
+            <option value="por_renovar">⚠️ Por Renovar con Proveedor</option>
+            <option value="vacias">⚪ Vacías (0 Ocupadas)</option>
+          </select>
+        </div>
+
+      </div>
+
+      <!-- Count & Result Info -->
+      <div class="flex items-center justify-between text-xs text-slate-400 px-1">
+        <span id="correos-results-count">Cargando correos...</span>
+        <span class="text-[11px] text-slate-500">Haz clic en <strong>"+ Asignar"</strong> en cualquier pantalla libre para vincularla a un cliente, o en <strong>"Renovar"</strong> para extender la fecha con tu proveedor.</span>
+      </div>
+
+      <!-- Correos Table in Rows and Columns -->
+      <div id="correos-list" class="w-full">
+        <!-- Rendered by JS as responsive table -->
+      </div>
+
+    </div>
+
+    <!-- VIEW 2: TARIFARIO & CALCULADORA DE GANANCIAS POR SERVICIO (EXACTAMENTE LO QUE PIDE EL USUARIO) -->
+    <div id="view-tarifario_ganancias" class="hidden space-y-6">
+
+      <!-- Header & Intro -->
+      <div class="bg-gradient-to-r from-emerald-950/60 via-slate-900 to-indigo-950/60 border border-emerald-500/30 rounded-3xl p-5 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div>
+          <div class="flex items-center gap-2 mb-1">
+            <span class="px-3 py-1 rounded-full text-xs font-bold bg-emerald-600/30 text-emerald-400 border border-emerald-500/40">
+              📊 CALCULADORA DE GANANCIAS POR CUENTA QUE VENDES
+            </span>
+          </div>
+          <h2 class="text-xl font-black text-slate-100">Tarifario de Servicios, Costos y Ganancias</h2>
+          <p class="text-xs text-slate-300 max-w-2xl mt-1">
+            Aquí están <strong>todas las cuentas y pantallas que tú vendes</strong> (tu catálogo). 
+            Solo escribe en la columna <strong class="text-amber-300">"Tu Inversión / Costo"</strong> cuánto pagas por cada una y el sistema te dirá <strong>exactamente cuánto estás ganando en cada venta</strong> y tu porcentaje de ganancia.
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Boton Guardar Tarifario -->
+          <button onclick="manualSaveCatalog()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-emerald-600/30 active:scale-95" title="Guardar cambios de precios y costos">
+            <i data-lucide="save" class="w-4 h-4"></i>
+            <span>Guardar Tarifario</span>
+          </button>
+          <!-- Boton Agregar Servicio -->
+          <button onclick="openAddServiceModal()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-indigo-600/30 active:scale-95" title="Agregar una nueva cuenta o servicio al catálogo">
+            <i data-lucide="plus-circle" class="w-4 h-4"></i>
+            <span>Agregar Servicio</span>
+          </button>
+          <!-- Boton Copiar para WhatsApp -->
+          <button onclick="copyPriceListToWhatsApp()" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 hover:border-emerald-500 rounded-xl text-xs font-bold transition flex items-center gap-1.5" title="Copiar lista de precios con emojis para WhatsApp">
+            <i data-lucide="message-circle" class="w-4 h-4"></i>
+            <span class="hidden sm:inline">WhatsApp</span>
+          </button>
+          <!-- Boton Restablecer Fabrica -->
+          <button onclick="resetCatalogDefaults()" class="p-2 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl text-xs font-semibold transition" title="Restablecer tarifario de fábrica">
+            <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- KPI Summary Cards -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-lg">
+          <div class="flex items-center justify-between text-slate-400 mb-1 text-xs">
+            <span>Ganancia Mensual Proyectada</span>
+            <i data-lucide="wallet" class="w-4 h-4 text-emerald-400"></i>
+          </div>
+          <div id="cat-kpi-ganancia-mes" class="text-2xl font-black text-emerald-400 font-mono">$ 0.00</div>
+          <span class="text-[10px] text-emerald-400 font-semibold">Basado en tus ventas estimadas</span>
+        </div>
+
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-lg">
+          <div class="flex items-center justify-between text-slate-400 mb-1 text-xs">
+            <span>Ingresos Brutos Estimados</span>
+            <i data-lucide="dollar-sign" class="w-4 h-4 text-blue-400"></i>
+          </div>
+          <div id="cat-kpi-ingreso-mes" class="text-2xl font-black text-blue-400 font-mono">$ 0.00</div>
+          <span class="text-[10px] text-slate-500">Total cobrado a clientes</span>
+        </div>
+
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-lg">
+          <div class="flex items-center justify-between text-slate-400 mb-1 text-xs">
+            <span>Costo Total de Inversión</span>
+            <i data-lucide="credit-card" class="w-4 h-4 text-rose-400"></i>
+          </div>
+          <div id="cat-kpi-inversion-mes" class="text-2xl font-black text-rose-400 font-mono">$ 0.00</div>
+          <span class="text-[10px] text-slate-500">Costo pagado a proveedores</span>
+        </div>
+
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-lg">
+          <div class="flex items-center justify-between text-slate-400 mb-1 text-xs">
+            <span>Margen Promedio</span>
+            <i data-lucide="trending-up" class="w-4 h-4 text-indigo-400"></i>
+          </div>
+          <div id="cat-kpi-avg-margin" class="text-2xl font-black text-indigo-400 font-mono">0%</div>
+          <span id="cat-kpi-best-prod" class="text-[10px] text-slate-400 truncate block">Mayor ganancia: ...</span>
+        </div>
+
+      </div>
+
+      <!-- Search & Filters -->
+      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-xl flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div class="relative w-full sm:w-80">
+          <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+          <input id="catalog-search" type="text" placeholder="Buscar cuenta o servicio que vendes..." class="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 outline-none focus:border-emerald-500">
+        </div>
+        <div class="text-[11px] text-slate-400 flex items-center gap-1.5">
+          <i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-400"></i>
+          <span>Modifica el precio o costo en cualquier casilla y se guarda automáticamente.</span>
+        </div>
+      </div>
+
+      <!-- Product Profitability Table -->
+      <div class="overflow-x-auto rounded-3xl border border-slate-800 bg-slate-900/90 shadow-2xl">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+            <tr>
+              <th class="py-3.5 px-4">Cuenta / Servicio que Vendes</th>
+              <th class="py-3.5 px-4">Precio de Venta ($)</th>
+              <th class="py-3.5 px-4 text-amber-300">Tu Inversión / Costo ($)</th>
+              <th class="py-3.5 px-4 text-emerald-400">Ganancia Neta por Venta</th>
+              <th class="py-3.5 px-4">Margen %</th>
+              <th class="py-3.5 px-4">Ventas Est. / Mes</th>
+              <th class="py-3.5 px-4 text-right">Ganancia Mensual Proyectada</th>
+              <th class="py-3.5 px-3 text-center">Acción</th>
+            </tr>
+          </thead>
+          <tbody id="catalog-profits-table-body">
+            <!-- Rendered by JS -->
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+
+    <!-- VIEW 3: DIRECTORIO DE CLIENTES -->
+    <div id="view-clientes" class="hidden space-y-4">
+      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl">
+        <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 mb-4">
+          <div>
+            <h2 class="text-lg font-bold text-slate-100 flex items-center gap-2">
+              <i data-lucide="users" class="w-5 h-5 text-indigo-400"></i>
+              <span>Directorio de Clientes</span>
+            </h2>
+            <p class="text-xs text-slate-400" id="clients-count">Lista completa de clientes con sus servicios y teléfonos</p>
+          </div>
+          <div class="relative w-full sm:w-72">
+            <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+            <input id="clients-search" type="text" placeholder="Buscar cliente o celular..." class="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 outline-none focus:border-indigo-500">
+          </div>
+        </div>
+
+        <!-- Clients Table -->
+        <div class="overflow-x-auto rounded-xl border border-slate-800">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+              <tr>
+                <th class="py-3 px-4">Cliente</th>
+                <th class="py-3 px-4">Celular</th>
+                <th class="py-3 px-4">Cuentas / Perfiles Asignados</th>
+                <th class="py-3 px-4 text-right">Contacto</th>
+              </tr>
+            </thead>
+            <tbody id="clients-table-body">
+              <!-- Rendered by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- VIEW 4: CONTABILIDAD Y VENTAS -->
+    <div id="view-contabilidad" class="hidden space-y-6">
+      
+      <!-- Top Financial Summary Cards -->
+      <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-lg">
+          <div class="flex items-center justify-between text-slate-400 mb-1 text-xs">
+            <span>Total Ventas</span>
+            <i data-lucide="dollar-sign" class="w-4 h-4 text-blue-400"></i>
+          </div>
+          <div id="acc-tot-ventas" class="text-2xl font-black text-blue-400 font-mono">$ 0.00</div>
+          <span class="text-[10px] text-slate-500">Ingresos brutos</span>
+        </div>
+
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-lg">
+          <div class="flex items-center justify-between text-slate-400 mb-1 text-xs">
+            <span>Inversión / Costos</span>
+            <i data-lucide="credit-card" class="w-4 h-4 text-rose-400"></i>
+          </div>
+          <div id="acc-tot-inversion" class="text-2xl font-black text-rose-400 font-mono">$ 0.00</div>
+          <span class="text-[10px] text-slate-500">Costo de cuentas</span>
+        </div>
+
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-lg">
+          <div class="flex items-center justify-between text-slate-400 mb-1 text-xs">
+            <span>Ganancia Neta</span>
+            <i data-lucide="trending-up" class="w-4 h-4 text-emerald-400"></i>
+          </div>
+          <div id="acc-tot-ganancias" class="text-2xl font-black text-emerald-400 font-mono">$ 0.00</div>
+          <span id="acc-margin" class="text-[10px] text-emerald-400 font-semibold">0% Margen</span>
+        </div>
+
+        <div class="bg-gradient-to-br from-indigo-950/60 to-purple-950/60 border border-indigo-500/30 rounded-2xl p-4 shadow-lg flex flex-col justify-between">
+          <div class="text-xs text-indigo-300 font-bold">Registrar Nueva Venta</div>
+          <p class="text-[11px] text-slate-400">Anota un cobro de pantalla o renovación manual.</p>
+          <button onclick="openAddSaleModal()" class="mt-2 w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-md">
+            <i data-lucide="plus" class="w-4 h-4"></i>
+            <span>Registrar Venta</span>
+          </button>
+        </div>
+
+      </div>
+
+      <!-- Chart and Sales Table -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- Chart -->
+        <div class="lg:col-span-1 bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl flex flex-col justify-between">
+          <div>
+            <h3 class="text-sm font-bold text-slate-200 mb-1 flex items-center gap-2">
+              <i data-lucide="bar-chart-2" class="w-4 h-4 text-indigo-400"></i>
+              <span>Ventas y Ganancias por Servicio</span>
+            </h3>
+            <p class="text-[11px] text-slate-400 mb-4">Distribución financiera por plataforma</p>
+          </div>
+          <div class="h-64 w-full">
+            <canvas id="accounting-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Sales History Table -->
+        <div class="lg:col-span-2 bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+                <i data-lucide="file-text" class="w-4 h-4 text-emerald-400"></i>
+                <span>Historial de Ventas (H_CONTABLE)</span>
+              </h3>
+              <p class="text-[11px] text-slate-400">Transacciones registradas automáticamente y manuales</p>
+            </div>
+          </div>
+          <div class="overflow-x-auto rounded-xl border border-slate-800 max-h-80 overflow-y-auto">
+            <table class="w-full text-left">
+              <thead class="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800 sticky top-0">
+                <tr>
+                  <th class="py-2.5 px-4">Fecha</th>
+                  <th class="py-2.5 px-4">Plataforma</th>
+                  <th class="py-2.5 px-4">Tipo</th>
+                  <th class="py-2.5 px-4">Venta</th>
+                  <th class="py-2.5 px-4">Inversión</th>
+                  <th class="py-2.5 px-4">Ganancia</th>
+                  <th class="py-2.5 px-4 text-right">Acción</th>
+                </tr>
+              </thead>
+              <tbody id="sales-table-body">
+                <!-- Rendered by JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- ==================== MODALS ==================== -->
+
+  <!-- MODAL: WHATSAPP NOTIFICATION -->
+  <div id="whatsapp-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl">
+      <div class="bg-gradient-to-r from-emerald-600 to-teal-700 p-4 sm:p-5 text-white flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-2xl bg-white/20 flex items-center justify-center">
+            <i data-lucide="message-circle" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-base">Enviar Mensaje por WhatsApp</h3>
+            <p class="text-xs text-emerald-100" id="wa-service-name">Servicio</p>
+          </div>
+        </div>
+        <button onclick="closeModal('whatsapp-modal')" class="p-1.5 rounded-xl hover:bg-white/10 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-4 text-xs">
+        
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-400 font-semibold mb-1">Nombre del Cliente</label>
+            <input id="wa-client-name" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 outline-none focus:border-emerald-500">
+          </div>
+          <div>
+            <label class="block text-slate-400 font-semibold mb-1">Celular (Formato WhatsApp)</label>
+            <input id="wa-client-phone" type="text" placeholder="58424..." class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono outline-none focus:border-emerald-500">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-slate-400 font-semibold mb-1">Seleccionar Plantilla de Mensaje</label>
+          <select id="wa-template-select" onchange="updateWhatsAppMessageText(this.value)" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 outline-none focus:border-emerald-500 font-medium">
+            <option value="aviso">⚠️ Aviso Previo (Tu pantalla vencerá pronto + Tarifa)</option>
+            <option value="hoy">⏰ Vence HOY (Aviso de cobro el día del corte + Tarifa)</option>
+            <option value="vencido">🚨 Servicio Vencido (Aviso de suspensión / reactivación)</option>
+            <option value="datos">🔑 Entrega de Credenciales (Correo, clave, perfil y precio)</option>
+          </select>
+        </div>
+
+        <div class="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 flex items-center justify-between">
+          <span class="text-slate-400">Fecha de Corte de la cuenta:</span>
+          <span id="wa-expiry-date" class="font-bold text-amber-400 font-mono">--/--/----</span>
+        </div>
+
+        <div>
+          <label class="block text-slate-400 font-semibold mb-1">Vista Previa del Mensaje (Puedes editarlo libremente):</label>
+          <textarea id="wa-message-preview" rows="6" class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-slate-200 outline-none focus:border-emerald-500 leading-relaxed font-sans"></textarea>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-2">
+          <button onclick="closeModal('whatsapp-modal')" class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold transition">
+            Cancelar
+          </button>
+          <button onclick="copyToClipboard(document.getElementById('wa-message-preview').value, 'Mensaje')" class="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold transition" title="Copiar texto">
+            <i data-lucide="copy" class="w-4 h-4"></i>
+          </button>
+          <button onclick="sendWhatsAppMessage()" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold transition flex items-center gap-2 shadow-lg shadow-emerald-600/30">
+            <i data-lucide="send" class="w-4 h-4"></i>
+            <span>Abrir en WhatsApp</span>
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: RENEW ACCOUNT (1-CLICK RENEWAL) -->
+  <div id="renew-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl">
+      <div class="bg-gradient-to-r from-teal-600 to-emerald-700 p-4 sm:p-5 text-white flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-2xl bg-white/20 flex items-center justify-center">
+            <i data-lucide="refresh-cw" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-base">Renovar Suscripción</h3>
+            <p class="text-xs text-teal-100" id="renew-acc-id">Cuenta</p>
+          </div>
+        </div>
+        <button onclick="closeModal('renew-modal')" class="p-1.5 rounded-xl hover:bg-white/10 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-4 text-xs">
+        
+        <div class="p-3 bg-slate-950/60 rounded-xl border border-slate-800 flex items-center justify-between">
+          <span class="text-slate-400">Fecha de Corte Actual:</span>
+          <span id="renew-current-corte" class="font-mono font-bold text-slate-200">--/--/----</span>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-400 font-semibold mb-1">Días a Extender</label>
+            <select id="renew-days" onchange="recalculateRenewDate()" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 outline-none focus:border-emerald-500 font-medium">
+              <option value="30">30 Días (1 Mes)</option>
+              <option value="60">60 Días (2 Meses)</option>
+              <option value="90">90 Días (3 Meses / Promo)</option>
+              <option value="120">120 Días (4 Meses)</option>
+              <option value="365">365 Días (1 Año)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-slate-400 font-semibold mb-1">Nueva Fecha de Corte</label>
+            <input id="renew-new-corte" type="date" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono outline-none focus:border-emerald-500">
+          </div>
+        </div>
+
+        <div class="pt-3 border-t border-slate-800/80 space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <input id="renew-log-sale" type="checkbox" checked class="w-4 h-4 rounded text-emerald-600 bg-slate-950 border-slate-800 focus:ring-0">
+              <label for="renew-log-sale" class="text-slate-300 font-semibold cursor-pointer">Registrar automáticamente en Contabilidad</label>
+            </div>
+            <span id="renew-profit-badge" class="text-[11px] font-mono font-bold text-emerald-400">Ganancia: +$3.00</span>
+          </div>
+          
+          <div class="grid grid-cols-2 gap-3 pl-6">
+            <div>
+              <label class="block text-slate-400 text-[10px] mb-1 flex items-center justify-between">
+                <span>Precio Cobrado ($)</span>
+                <span class="text-[9px] text-emerald-400 font-semibold">Del Tarifario</span>
+              </label>
+              <input id="renew-sale-price" type="number" step="0.1" oninput="updateRenewProfitPreview()" value="4.00" class="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-lg px-2.5 py-1.5 text-slate-100 font-mono text-xs outline-none">
+            </div>
+            <div>
+              <label class="block text-slate-400 text-[10px] mb-1 flex items-center justify-between">
+                <span class="text-amber-300">Costo Inversión ($)</span>
+                <span class="text-[9px] text-amber-400 font-semibold">Del Tarifario</span>
+              </label>
+              <input id="renew-investment" type="number" step="0.1" oninput="updateRenewProfitPreview()" value="1.00" class="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-lg px-2.5 py-1.5 text-amber-300 font-mono text-xs outline-none">
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-2">
+          <button onclick="closeModal('renew-modal')" class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold transition">
+            Cancelar
+          </button>
+          <button onclick="confirmRenewal()" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold transition flex items-center gap-2 shadow-lg shadow-emerald-600/30">
+            <i data-lucide="check" class="w-4 h-4"></i>
+            <span>Confirmar Renovación</span>
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: ADD / EDIT ACCOUNT -->
+  <div id="account-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl max-h-[90vh] flex flex-col">
+      <div class="bg-slate-950 p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <h3 id="account-modal-title" class="font-bold text-base text-slate-100">Agregar Nueva Cuenta</h3>
+          <span id="acc-price-badge" class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 font-mono">$6.00</span>
+        </div>
+        <button onclick="closeModal('account-modal')" class="p-1.5 rounded-xl hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-5 h-5 text-slate-400"></i>
+        </button>
+      </div>
+
+      <form onsubmit="saveAccountForm(event)" class="p-5 space-y-4 text-xs overflow-y-auto flex-1">
+        <input type="hidden" id="acc-edit-id-orig">
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-400 font-semibold mb-1">Plataforma / Servicio *</label>
+            <select id="acc-plat-select" onchange="onPlatformSelectChange(this.value)" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 outline-none focus:border-indigo-500 font-medium">
+              <option value="Netflix (Personal)">Netflix (Personal) - $6.00</option>
+              <option value="Netflix (Pantalla Normal)">Netflix (Pantalla Normal) - $4.00</option>
+              <option value="Netflix (Cuenta Completa)">Netflix (Cuenta Completa) - $12.00</option>
+              <option value="Disney+ (Sin ESPN)">Disney+ (Sin ESPN) - $2.50</option>
+              <option value="Prime Video">Prime Video - $2.50</option>
+              <option value="Max">Max - $2.50</option>
+              <option value="ViX">ViX - $2.50</option>
+              <option value="Flujo TV">Flujo TV - $4.00</option>
+              <option value="Apple TV+">Apple TV+ - $3.00</option>
+              <option value="iQIYI">iQIYI - $2.80</option>
+              <option value="Viki">Viki - $2.80</option>
+              <option value="Spotify">Spotify - $4.00 / 3m $10.00</option>
+              <option value="YouTube Premium">YouTube Premium - $4.00 / 3m $10.00</option>
+              <option value="Magis TV">Magis TV - $6.00</option>
+              <option value="Star+">Star+ - $2.50</option>
+              <option value="Plex">Plex - $3.00</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-slate-400 font-semibold mb-1">ID de Cuenta *</label>
+            <input id="acc-id-input" type="text" required placeholder="NPERS1, PNET1..." class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono outline-none focus:border-indigo-500 uppercase">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-400 font-semibold mb-1">Correo Electrónico</label>
+            <input id="acc-email-input" type="text" placeholder="cuenta@correo.com" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono outline-none focus:border-indigo-500">
+          </div>
+          <div>
+            <label class="block text-slate-400 font-semibold mb-1">Contraseña de la Cuenta</label>
+            <input id="acc-pwd-input" type="text" placeholder="clave123" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono outline-none focus:border-indigo-500">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-slate-400 font-semibold mb-1">Clave de Acceso al Correo (Opcional)</label>
+          <input id="acc-emailpwd-input" type="text" placeholder="clave del correo..." class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono outline-none focus:border-indigo-500">
+        </div>
+
+        <div class="grid grid-cols-3 gap-3">
+          <div>
+            <label class="block text-slate-400 font-semibold mb-1">Modalidad</label>
+            <select id="acc-type-select" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 outline-none focus:border-indigo-500">
+              <option value="PERFIL">Por Perfiles</option>
+              <option value="CUENTA">Cuenta Completa / Personal</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-slate-400 font-semibold mb-1">N° de Perfiles</label>
+            <input id="acc-profiles-count" type="number" min="1" max="7" value="1" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 outline-none focus:border-indigo-500">
+          </div>
+          <div>
+            <label class="block text-slate-400 font-semibold mb-1">Cliente / Dueño</label>
+            <input id="acc-owner-input" type="text" placeholder="Nombre - Celular" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 outline-none focus:border-indigo-500">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-3 pt-2 border-t border-slate-800">
+          <div>
+            <label class="block text-slate-400 font-semibold mb-1">Fecha Entrega</label>
+            <input id="acc-delivery-date" onchange="autoComputeExpiryInForm()" type="date" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-slate-200 font-mono outline-none focus:border-indigo-500 text-xs">
+          </div>
+          <div>
+            <label class="block text-slate-400 font-semibold mb-1">Días Vigencia</label>
+            <input id="acc-days-input" onchange="autoComputeExpiryInForm()" type="number" value="30" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-slate-200 font-mono outline-none focus:border-indigo-500 text-xs">
+          </div>
+          <div>
+            <label class="block text-slate-400 font-semibold mb-1">Fecha Corte *</label>
+            <input id="acc-expiry-date" type="date" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-slate-200 font-mono outline-none focus:border-indigo-500 text-xs">
+          </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+          <button type="button" onclick="closeModal('account-modal')" class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold transition">
+            Cancelar
+          </button>
+          <button type="submit" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition flex items-center gap-2 shadow-lg shadow-indigo-600/30">
+            <i data-lucide="save" class="w-4 h-4"></i>
+            <span>Guardar Cuenta</span>
+          </button>
+        </div>
+
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: EDITAR CORREO, DISPONIBILIDAD Y RENOVACIÓN CON PROVEEDOR -->
+  <div id="edit-correo-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-xl overflow-hidden shadow-2xl max-h-[92vh] flex flex-col">
+      
+      <!-- Modal Header -->
+      <div class="bg-slate-950 p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="p-2.5 bg-indigo-600/20 text-indigo-400 rounded-2xl border border-indigo-500/30">
+            <i data-lucide="edit-3" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 id="edit-correo-modal-title" class="font-black text-base text-slate-100">Editar Correo y Disponibilidad</h3>
+            <p id="edit-correo-modal-subtitle" class="text-xs text-slate-400">Modifica el correo, la fecha con tu proveedor y los clientes asignados</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeModal('edit-correo-modal')" class="p-1.5 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Modal Form -->
+      <form onsubmit="saveEditCorreoForm(event)" class="p-5 space-y-4 text-xs overflow-y-auto flex-1">
+        <input type="hidden" id="edit-correo-acc-id">
+
+        <!-- Fila 1: Servicio e ID -->
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-400 font-semibold mb-1">Servicio / Plataforma</label>
+            <input id="edit-correo-plat" type="text" readonly class="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-3 py-2 text-slate-300 font-medium outline-none cursor-not-allowed">
+          </div>
+          <div>
+            <label class="block text-slate-400 font-semibold mb-1">ID Cuenta</label>
+            <input id="edit-correo-id" type="text" readonly class="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-3 py-2 text-slate-300 font-mono font-bold outline-none cursor-not-allowed">
+          </div>
+        </div>
+
+        <!-- Fila 2: Correo Electrónico y Fecha Renovación Proveedor -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-200 font-semibold mb-1">
+              📧 Correo Electrónico *
+            </label>
+            <input id="edit-correo-email" type="text" required placeholder="correo@ejemplo.com" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-100 font-mono outline-none focus:border-indigo-500">
+          </div>
+          <div>
+            <label class="block text-amber-300 font-semibold mb-1 flex items-center gap-1.5">
+              <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
+              <span>Fecha Renovación Proveedor *</span>
+            </label>
+            <input id="edit-correo-expiry" type="date" required class="w-full bg-slate-950 border border-amber-500/40 rounded-xl px-3 py-2 text-slate-100 font-mono outline-none focus:border-amber-400">
+          </div>
+        </div>
+
+        <!-- Fila 3: Capacidad de Perfiles -->
+        <div class="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-3.5 flex items-center justify-between gap-3">
+          <div>
+            <span class="block text-slate-200 font-bold text-xs">Capacidad Total de Pantallas / Perfiles</span>
+            <span class="text-[11px] text-slate-400">Para Netflix estándar son 5 perfiles; si es personal es 1.</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <input id="edit-correo-capacidad" type="number" min="1" max="10" onchange="onEditCorreoCapacidadChange(this.value)" class="w-20 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-slate-100 font-bold text-center outline-none focus:border-indigo-500 font-mono">
+            <span class="text-xs text-slate-400">perfiles</span>
+          </div>
+        </div>
+
+        <!-- Fila 4: Detalle de Perfiles y Clientes Asignados -->
+        <div class="space-y-2 pt-1">
+          <div class="flex items-center justify-between">
+            <label class="block text-slate-200 font-bold text-xs uppercase tracking-wider">
+              👥 Clientes Asignados por Perfil (1 a Capacidad)
+            </label>
+            <span class="text-[11px] text-slate-500">Deja el nombre vacío para que quede "Disponible"</span>
+          </div>
+
+          <!-- Contenedor dinámico de perfiles -->
+          <div id="edit-correo-perfiles-container" class="space-y-2 max-h-56 overflow-y-auto pr-1">
+            <!-- Renderizado dinámico por JS -->
+          </div>
+        </div>
+
+        <!-- Footer Actions -->
+        <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+          <button type="button" onclick="closeModal('edit-correo-modal')" class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold transition">
+            Cancelar
+          </button>
+          <button type="submit" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition flex items-center gap-2 shadow-lg shadow-indigo-600/30 active:scale-95">
+            <i data-lucide="check" class="w-4 h-4"></i>
+            <span>Guardar Cambios</span>
+          </button>
+        </div>
+
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: ASSIGN PROFILE -->
+  <div id="assign-profile-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl">
+      <div class="bg-slate-950 p-4 border-b border-slate-800 flex items-center justify-between">
+        <div>
+          <h3 class="font-bold text-sm text-slate-100">Asignar Perfil a Cliente</h3>
+          <p id="assign-target-info" class="text-xs text-indigo-400 font-semibold">Perfil</p>
+        </div>
+        <button onclick="closeModal('assign-profile-modal')" class="p-1 rounded-lg hover:bg-slate-800">
+          <i data-lucide="x" class="w-4 h-4 text-slate-400"></i>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-3 text-xs">
+        <input type="hidden" id="assign-acc-id">
+        <input type="hidden" id="assign-profile-num">
+
+        <div>
+          <label class="block text-slate-400 font-semibold mb-1">Nombre del Cliente *</label>
+          <input id="assign-client-name" list="clients-datalist" onchange="onClientSelectFromList(this.value)" type="text" placeholder="Escribe o selecciona cliente existente..." class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 outline-none focus:border-indigo-500">
+          <datalist id="clients-datalist"></datalist>
+        </div>
+
+        <div>
+          <label class="block text-slate-400 font-semibold mb-1">Teléfono Celular (Para WhatsApp)</label>
+          <input id="assign-client-phone" type="text" placeholder="04241234567" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono outline-none focus:border-indigo-500">
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+          <button onclick="closeModal('assign-profile-modal')" class="px-3.5 py-2 bg-slate-800 text-slate-300 rounded-xl font-semibold">
+            Cancelar
+          </button>
+          <button onclick="confirmAssignProfile()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition flex items-center gap-1.5 shadow-md">
+            <i data-lucide="user-check" class="w-4 h-4"></i>
+            <span>Asignar Perfil</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: RECORD SALE -->
+  <div id="sale-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl">
+      <div class="bg-slate-950 p-4 border-b border-slate-800 flex items-center justify-between">
+        <h3 class="font-bold text-sm text-slate-100 flex items-center gap-2">
+          <i data-lucide="dollar-sign" class="w-4 h-4 text-emerald-400"></i>
+          <span>Registrar Venta Contable</span>
+        </h3>
+        <button onclick="closeModal('sale-modal')" class="p-1 rounded-lg hover:bg-slate-800">
+          <i data-lucide="x" class="w-4 h-4 text-slate-400"></i>
+        </button>
+      </div>
+
+      <form onsubmit="saveSaleForm(event)" class="p-5 space-y-3 text-xs">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-400 font-semibold mb-1">Fecha</label>
+            <input id="sale-date" type="date" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono outline-none">
+          </div>
+          <div>
+            <label class="block text-slate-400 font-semibold mb-1">Plataforma</label>
+            <select id="sale-plat" onchange="onSalePlatformChange(this.value)" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 outline-none">
+              <option value="Netflix (Personal)">Netflix (Personal) - $6.00</option>
+              <option value="Netflix (Pantalla Normal)">Netflix (Pantalla Normal) - $4.00</option>
+              <option value="Netflix (Cuenta Completa)">Netflix (Cuenta Completa) - $12.00</option>
+              <option value="Disney+ (Sin ESPN)">Disney+ (Sin ESPN) - $2.50</option>
+              <option value="Prime Video">Prime Video - $2.50</option>
+              <option value="Max">Max - $2.50</option>
+              <option value="ViX">ViX - $2.50</option>
+              <option value="Flujo TV">Flujo TV - $4.00</option>
+              <option value="Apple TV+">Apple TV+ - $3.00</option>
+              <option value="iQIYI">iQIYI - $2.80</option>
+              <option value="Viki">Viki - $2.80</option>
+              <option value="Spotify">Spotify - $4.00</option>
+              <option value="YouTube Premium">YouTube Premium - $4.00</option>
+              <option value="Magis TV">Magis TV - $6.00</option>
+              <option value="Star+">Star+ - $2.50</option>
+              <option value="Plex">Plex - $3.00</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-3">
+          <div>
+            <label class="block text-slate-400 font-semibold mb-1">Tipo</label>
+            <select id="sale-type" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2 py-2 text-slate-200">
+              <option value="Pantalla">Pantalla</option>
+              <option value="Cuenta Completa">Cuenta Completa</option>
+              <option value="Combo">Combo</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-slate-400 font-semibold mb-1">Precio ($)</label>
+            <input id="sale-price" oninput="recalculateSaleModal()" type="number" step="0.1" value="6.00" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono">
+          </div>
+          <div>
+            <label class="block text-slate-400 font-semibold mb-1">Cantidad</label>
+            <input id="sale-qty" oninput="recalculateSaleModal()" type="number" min="1" value="1" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-slate-400 font-semibold mb-1">Costo Inversión ($)</label>
+          <input id="sale-investment" oninput="recalculateSaleModal()" type="number" step="0.1" value="2.00" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono">
+        </div>
+
+        <div class="p-3 bg-slate-950/80 rounded-xl border border-slate-800 grid grid-cols-2 gap-2 text-center">
+          <div>
+            <span class="text-[10px] text-slate-500 uppercase font-semibold">Total Venta</span>
+            <div id="sale-total-preview" class="text-base font-bold text-emerald-400 font-mono">$ 6.00</div>
+          </div>
+          <div>
+            <span class="text-[10px] text-slate-500 uppercase font-semibold">Ganancia Neta</span>
+            <div id="sale-profit-preview" class="text-base font-bold text-indigo-400 font-mono">$ 4.00</div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-2">
+          <button type="button" onclick="closeModal('sale-modal')" class="px-3.5 py-2 bg-slate-800 text-slate-300 rounded-xl">Cancelar</button>
+          <button type="submit" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold transition">Guardar Venta</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: FIREBASE CLOUD SYNC -->
+  <div id="firebase-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl">
+      <!-- Header -->
+      <div class="bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 p-4 sm:p-5 text-white flex items-center justify-between shrink-0">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shadow">
+            <i data-lucide="cloud" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-base flex items-center gap-2">
+              <span>Sincronización en la Nube con Firebase</span>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/20 text-white">100% Gratis</span>
+            </h3>
+            <p class="text-xs text-amber-100">Tus datos en tiempo real entre tu PC, celular y cualquier dispositivo</p>
+          </div>
+        </div>
+        <button onclick="closeModal('firebase-modal')" class="p-1.5 rounded-xl hover:bg-white/10 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Modal Body (Scrollable) -->
+      <div class="p-5 space-y-4 overflow-y-auto text-xs flex-1">
+        
+        <!-- Status Banner -->
+        <div id="fb-status-card" class="p-4 rounded-2xl border transition bg-slate-950/80 border-slate-800">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div id="fb-status-icon-wrap" class="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center text-slate-400">
+                <i data-lucide="cloud-off" class="w-5 h-5"></i>
+              </div>
+              <div>
+                <div class="flex items-center gap-2">
+                  <span id="fb-status-title" class="font-bold text-sm text-slate-200">Modo Local (Sin Nube)</span>
+                  <span id="fb-status-badge" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400">Desconectado</span>
+                </div>
+                <p id="fb-status-desc" class="text-[11px] text-slate-400 mt-0.5">Los cambios se guardan solo en la memoria de este navegador.</p>
+              </div>
+            </div>
+            <div id="fb-status-actions" class="hidden">
+              <button onclick="disconnectFirebase()" class="px-3 py-1.5 bg-red-950/50 hover:bg-red-900/60 text-red-300 border border-red-800/50 rounded-xl font-semibold transition text-xs">
+                Desconectar
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick 4-Step Instructions -->
+        <div class="p-4 bg-slate-950/50 rounded-2xl border border-slate-800/80 space-y-2">
+          <h4 class="font-bold text-slate-200 flex items-center justify-between">
+            <span class="flex items-center gap-2">
+              <i data-lucide="info" class="w-4 h-4 text-amber-400"></i>
+              <span>¿Cómo obtener tus credenciales de Firebase gratis? (2 minutos)</span>
+            </span>
+            <a href="https://console.firebase.google.com/" target="_blank" rel="noopener noreferrer" class="text-amber-400 hover:text-amber-300 underline text-[11px] flex items-center gap-1 font-normal">
+              Abrir Firebase Console <i data-lucide="external-link" class="w-3 h-3"></i>
+            </a>
+          </h4>
+          <ol class="list-decimal list-inside space-y-1 text-slate-400 text-[11px] leading-relaxed">
+            <li>Entra en <a href="https://console.firebase.google.com/" target="_blank" class="text-amber-300 font-semibold underline">console.firebase.google.com</a> con tu cuenta de Google y haz clic en <b>"Agregar proyecto"</b> (ej: <i>goldenpro-app</i>).</li>
+            <li>En el menú lateral ve a <b>Compilación &gt; Firestore Database</b>, haz clic en <b>"Crear base de datos"</b> y selecciona <b>"Modo de prueba"</b>.</li>
+            <li>En la pantalla principal del proyecto, haz clic en el icono Web (<b>&lt;/&gt;</b>) para registrar la aplicación.</li>
+            <li>Copia el bloque de código <code class="text-amber-300 bg-slate-900 px-1 py-0.5 rounded">const firebaseConfig = { ... };</code> que te muestra Firebase y pégalo aquí abajo:</li>
+          </ol>
+        </div>
+
+        <!-- Config Form -->
+        <form onsubmit="handleSaveFirebaseConfig(event)" class="space-y-3">
+          <div>
+            <label class="block text-slate-300 font-bold mb-1 flex items-center justify-between">
+              <span>Pegar código de Firebase (Detección Automática)</span>
+              <span class="text-[10px] text-slate-500 font-normal">Detecta apiKey, projectId, etc. automáticamente</span>
+            </label>
+            <textarea id="fb-raw-config" rows="4" placeholder="Pega aquí el código que te da Firebase, ejemplo:
+const firebaseConfig = {
+  apiKey: &quot;AIzaSy...&quot;,
+  authDomain: &quot;tu-proyecto.firebaseapp.com&quot;,
+  projectId: &quot;tu-proyecto&quot;,
+  ...
+};" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono text-[11px] focus:outline-none focus:border-amber-500 transition"></textarea>
+          </div>
+
+          <!-- Collapsible Manual Inputs -->
+          <details class="bg-slate-950/40 rounded-xl border border-slate-800/60 p-3">
+            <summary class="cursor-pointer font-semibold text-slate-300 hover:text-white transition flex items-center justify-between text-[11px]">
+              <span>O rellenar campos manualmente</span>
+              <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400"></i>
+            </summary>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3 pt-3 border-t border-slate-800/80">
+              <div>
+                <label class="block text-[10px] text-slate-400 uppercase font-semibold mb-0.5">apiKey</label>
+                <input id="fb-input-apiKey" type="text" placeholder="AIzaSy..." class="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 text-xs">
+              </div>
+              <div>
+                <label class="block text-[10px] text-slate-400 uppercase font-semibold mb-0.5">projectId</label>
+                <input id="fb-input-projectId" type="text" placeholder="goldenpro-app" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 text-xs">
+              </div>
+              <div>
+                <label class="block text-[10px] text-slate-400 uppercase font-semibold mb-0.5">authDomain</label>
+                <input id="fb-input-authDomain" type="text" placeholder="goldenpro-app.firebaseapp.com" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 text-xs">
+              </div>
+              <div>
+                <label class="block text-[10px] text-slate-400 uppercase font-semibold mb-0.5">storageBucket</label>
+                <input id="fb-input-storageBucket" type="text" placeholder="goldenpro-app.appspot.com" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 text-xs">
+              </div>
+              <div>
+                <label class="block text-[10px] text-slate-400 uppercase font-semibold mb-0.5">messagingSenderId</label>
+                <input id="fb-input-messagingSenderId" type="text" placeholder="1234567890" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 text-xs">
+              </div>
+              <div>
+                <label class="block text-[10px] text-slate-400 uppercase font-semibold mb-0.5">appId</label>
+                <input id="fb-input-appId" type="text" placeholder="1:1234567890:web:abcd..." class="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 text-xs">
+              </div>
+            </div>
+          </details>
+
+          <!-- Buttons -->
+          <div class="flex items-center justify-end gap-2 pt-2">
+            <button type="button" onclick="closeModal('firebase-modal')" class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold transition">
+              Cerrar
+            </button>
+            <button type="submit" id="btn-save-firebase" class="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black rounded-xl transition flex items-center gap-2 shadow-lg shadow-amber-500/20">
+              <i data-lucide="check-circle" class="w-4 h-4"></i>
+              <span>Conectar y Guardar</span>
+            </button>
+          </div>
+        </form>
+
+        <!-- Cloud Actions (When Connected) -->
+        <div id="fb-cloud-actions-box" class="hidden pt-3 border-t border-slate-800 space-y-2">
+          <h4 class="font-bold text-slate-300 text-xs">Acciones de Nube:</h4>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button type="button" onclick="uploadAllToFirebase(true)" class="p-3 bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-800/40 rounded-xl text-left transition flex items-center gap-3">
+              <div class="w-8 h-8 rounded-lg bg-emerald-600/20 text-emerald-400 flex items-center justify-center shrink-0">
+                <i data-lucide="upload-cloud" class="w-4 h-4"></i>
+              </div>
+              <div>
+                <div class="font-bold text-emerald-300">Subir Datos a la Nube</div>
+                <div class="text-[10px] text-slate-400">Sube todas tus cuentas locales a Firebase</div>
+              </div>
+            </button>
+
+            <button type="button" onclick="downloadAllFromFirebase()" class="p-3 bg-indigo-950/40 hover:bg-indigo-900/50 border border-indigo-800/40 rounded-xl text-left transition flex items-center gap-3">
+              <div class="w-8 h-8 rounded-lg bg-indigo-600/20 text-indigo-400 flex items-center justify-center shrink-0">
+                <i data-lucide="download-cloud" class="w-4 h-4"></i>
+              </div>
+              <div>
+                <div class="font-bold text-indigo-300">Descargar de la Nube</div>
+                <div class="text-[10px] text-slate-400">Reemplaza datos locales con los de Firebase</div>
+              </div>
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: BACKUP & EXPORT -->
+  <div id="backup-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl">
+      <div class="bg-slate-950 p-4 border-b border-slate-800 flex items-center justify-between">
+        <h3 class="font-bold text-sm text-slate-100 flex items-center gap-2">
+          <i data-lucide="hard-drive-download" class="w-4 h-4 text-indigo-400"></i>
+          <span>Copias de Seguridad y Excel</span>
+        </h3>
+        <button onclick="closeModal('backup-modal')" class="p-1 rounded-lg hover:bg-slate-800">
+          <i data-lucide="x" class="w-4 h-4 text-slate-400"></i>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-4 text-xs">
+        
+        <div class="p-3 bg-slate-950/60 rounded-xl border border-slate-800 flex items-center justify-between">
+          <div>
+            <h4 class="font-bold text-slate-200">Exportar a Excel (.xlsx)</h4>
+            <p class="text-[10px] text-slate-400">Descarga tus cuentas, estados, tarifario oficial y ventas en Excel</p>
+          </div>
+          <button onclick="exportToExcel()" class="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold transition flex items-center gap-1.5">
+            <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5"></i>
+            <span>Descargar</span>
+          </button>
+        </div>
+
+        <div class="p-3 bg-slate-950/60 rounded-xl border border-slate-800 flex items-center justify-between">
+          <div>
+            <h4 class="font-bold text-slate-200">Descargar Copia JSON</h4>
+            <p class="text-[10px] text-slate-400">Respaldo total del sistema para guardar o transferir</p>
+          </div>
+          <button onclick="exportBackupJSON()" class="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition flex items-center gap-1.5">
+            <i data-lucide="download" class="w-3.5 h-3.5"></i>
+            <span>Exportar</span>
+          </button>
+        </div>
+
+        <div class="p-3 bg-slate-950/60 rounded-xl border border-slate-800">
+          <h4 class="font-bold text-slate-200 mb-1">Restaurar Copia JSON</h4>
+          <p class="text-[10px] text-slate-400 mb-2">Cargar archivo de respaldo previo</p>
+          <input type="file" accept=".json" onchange="importBackupJSON(this.files[0])" class="w-full text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700">
+        </div>
+
+        <div class="pt-2 border-t border-slate-800 flex items-center justify-between">
+          <span class="text-slate-500 text-[10px]">¿Deseas reiniciar los datos a la plantilla original?</span>
+          <button onclick="restoreInitialSeed()" class="px-3 py-1 bg-red-600/20 text-red-400 hover:bg-red-600 hover:text-white rounded-lg text-[10px] font-bold transition">
+            Restablecer Plantilla
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: AGREGAR NUEVO SERVICIO AL TARIFARIO -->
+  <div id="service-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl">
+      <div class="bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 p-4 sm:p-5 text-white flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-2xl bg-white/20 flex items-center justify-center shadow">
+            <i data-lucide="plus-circle" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-base">Agregar Nuevo Servicio al Tarifario</h3>
+            <p class="text-xs text-emerald-100">Crea una nueva cuenta, pantalla o suscripción que vendes</p>
+          </div>
+        </div>
+        <button onclick="closeModal('service-modal')" class="p-1.5 rounded-xl hover:bg-white/10 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <form onsubmit="saveNewServiceForm(event)" class="p-5 space-y-4 text-xs">
+        <div>
+          <label class="block text-slate-400 font-semibold mb-1">Nombre del Servicio o Cuenta *</label>
+          <input id="serv-name-input" type="text" required placeholder="Ej: Crunchyroll Mega Fan, Paramount+, IPTV Latino..." class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-100 font-bold outline-none focus:border-emerald-500">
+        </div>
+
+        <div>
+          <label class="block text-slate-400 font-semibold mb-1">Descripción o Detalle (Opcional)</label>
+          <input id="serv-desc-input" type="text" placeholder="Ej: Pantalla individual con pin, Cuenta completa 4 pantallas..." class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-300 outline-none focus:border-emerald-500">
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-400 font-semibold mb-1">Precio de Venta al Cliente ($) *</label>
+            <div class="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 focus-within:border-emerald-500">
+              <span class="text-slate-500 font-bold">$</span>
+              <input id="serv-price-input" type="number" step="0.1" min="0" required value="4.00" oninput="recalcNewServicePreview()" class="w-full bg-transparent font-mono font-bold text-slate-100 outline-none">
+            </div>
+          </div>
+          <div>
+            <label class="block text-slate-400 font-semibold mb-1 text-amber-300">Tu Inversión / Costo ($) *</label>
+            <div class="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 focus-within:border-amber-500">
+              <span class="text-slate-500 font-bold">$</span>
+              <input id="serv-inv-input" type="number" step="0.1" min="0" required value="1.50" oninput="recalcNewServicePreview()" class="w-full bg-transparent font-mono font-bold text-amber-300 outline-none">
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-400 font-semibold mb-1">Ventas Estimadas / Mes</label>
+            <input id="serv-qty-input" type="number" step="1" min="0" value="10" oninput="recalcNewServicePreview()" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono outline-none focus:border-emerald-500">
+          </div>
+          <div>
+            <label class="block text-slate-400 font-semibold mb-1">Color / Distintivo</label>
+            <select id="serv-color-select" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 outline-none focus:border-emerald-500 font-medium">
+              <option value="indigo">Púrpura / Índigo</option>
+              <option value="emerald">Verde Esmeralda</option>
+              <option value="blue">Azul Intenso</option>
+              <option value="red">Rojo Vivo</option>
+              <option value="amber">Naranja / Dorado</option>
+              <option value="teal">Turquesa</option>
+              <option value="pink">Rosa Neón</option>
+              <option value="slate">Gris Elegante</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Profit Preview Box -->
+        <div class="p-3.5 bg-slate-950/80 rounded-2xl border border-slate-800 grid grid-cols-3 gap-2 text-center">
+          <div>
+            <span class="text-[10px] text-slate-500 uppercase font-semibold">Ganancia / Venta</span>
+            <div id="serv-profit-preview" class="text-sm font-bold text-emerald-400 font-mono">+$2.50</div>
+          </div>
+          <div>
+            <span class="text-[10px] text-slate-500 uppercase font-semibold">Margen %</span>
+            <div id="serv-margin-preview" class="text-sm font-bold text-indigo-400 font-mono">62.5%</div>
+          </div>
+          <div>
+            <span class="text-[10px] text-slate-500 uppercase font-semibold">Ganancia Mes</span>
+            <div id="serv-month-preview" class="text-sm font-bold text-blue-400 font-mono">$25.00</div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+          <button type="button" onclick="closeModal('service-modal')" class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold transition">
+            Cancelar
+          </button>
+          <button type="submit" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold transition flex items-center gap-2 shadow-lg shadow-emerald-600/30">
+            <i data-lucide="check" class="w-4 h-4"></i>
+            <span>Guardar en Tarifario</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="firebase_config.js"></script>
+  <script src="seed_data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
