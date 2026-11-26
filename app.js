@@ -103,10 +103,19 @@ function ensureAccountProfileSlots(acc) {
     if (!existing) {
       acc.perfiles.push({ num: i, cliente: '', telefono: '', pin: '', raw: '', fechaEntrega: '', fechaCorte: '', dias: 30 });
     } else {
-      if ((existing.cliente || existing.raw) && !existing.fechaCorte) {
-        existing.fechaCorte = acc.fechaCorte || '';
-        existing.fechaEntrega = acc.fechaEntrega || '';
-        existing.dias = acc.dias || 30;
+      const hasClient = Boolean((existing.cliente && existing.cliente.trim() !== '') || (existing.raw && existing.raw.trim() !== ''));
+      if (hasClient) {
+        if (!existing.fechaCorte) {
+          // Asignar 30 días estándar a partir de fechaEntrega o hoy (NUNCA copiar fecha lejana del proveedor)
+          const baseDate = parseDMY(existing.fechaEntrega) || new Date();
+          existing.fechaCorte = formatDMY(addDaysToDate(baseDate, existing.dias || 30));
+          existing.fechaEntrega = formatDMY(baseDate);
+          existing.dias = existing.dias || 30;
+        }
+      } else {
+        // Perfil libre: NUNCA debe tener fecha de vencimiento
+        existing.fechaCorte = '';
+        existing.fechaEntrega = '';
       }
     }
   }
@@ -202,7 +211,7 @@ function openRenewProfileModal(accKey, perfilNum) {
   const pricing = getCatalogPriceAndInvestment(acc.plataforma, 30, acc);
 
   document.getElementById('renew-acc-id').textContent = `${acc.plataforma} (${acc.id}) - Perfil #${perfilNum}: ${p.cliente || 'Cliente'}`;
-  document.getElementById('renew-current-corte').textContent = p.fechaCorte || acc.fechaCorte || 'Sin fecha';
+  document.getElementById('renew-current-corte').textContent = formatDisplayDate(p.fechaCorte || acc.fechaCorte);
   document.getElementById('renew-days').value = '30';
   document.getElementById('renew-new-corte').value = formatYMD(newCorte);
   document.getElementById('renew-sale-price').value = pricing.price.toFixed(2);
@@ -351,29 +360,66 @@ const state = {
 
 // Utilities: Date Parsing and Formatting
 function parseDMY(dateStr) {
-  if (!dateStr || typeof dateStr !== 'string') return null;
+  if (!dateStr) return null;
+  if (dateStr instanceof Date) return isNaN(dateStr.getTime()) ? null : dateStr;
+  if (typeof dateStr !== 'string') return null;
   const parts = dateStr.trim().split(/[\/\-]/);
   if (parts.length !== 3) return null;
   let d, m, y;
   if (parts[0].length === 4) {
+    // Formato YYYY-MM-DD
     y = parseInt(parts[0], 10);
     m = parseInt(parts[1], 10) - 1;
     d = parseInt(parts[2], 10);
   } else {
+    // Formato DD/MM/YYYY o D/M/YYYY
     d = parseInt(parts[0], 10);
     m = parseInt(parts[1], 10) - 1;
     y = parseInt(parts[2], 10);
+    if (y < 100) y += 2000;
   }
   const date = new Date(y, m, d, 0, 0, 0, 0);
   return isNaN(date.getTime()) ? null : date;
 }
 
 function formatDMY(date) {
-  if (!date || !(date instanceof Date) || isNaN(date.getTime())) return '';
+  if (!date) return '';
+  if (typeof date === 'string') {
+    const p = parseDMY(date);
+    if (!p) return date;
+    date = p;
+  }
+  if (!(date instanceof Date) || isNaN(date.getTime())) return '';
   const d = String(date.getDate()).padStart(2, '0');
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const y = date.getFullYear();
   return `${d}/${m}/${y}`;
+}
+
+// Formateador infalible que garantiza visualización estricta DD/MM/YYYY en toda la aplicación
+function formatDisplayDate(val) {
+  if (!val || val === '—' || val === 'Sin fecha' || val === 'N/A') return val || '—';
+  return formatDMY(val) || val;
+}
+
+// Normaliza todas las fechas guardadas a formato DD/MM/YYYY con 2 dígitos
+function normalizeAllDates() {
+  if (!state.accounts || !Array.isArray(state.accounts)) return;
+  state.accounts.forEach(acc => {
+    if (acc.fechaCorte) acc.fechaCorte = formatDisplayDate(acc.fechaCorte);
+    if (acc.fechaEntrega) acc.fechaEntrega = formatDisplayDate(acc.fechaEntrega);
+    if (acc.perfiles && Array.isArray(acc.perfiles)) {
+      acc.perfiles.forEach(p => {
+        if (p.fechaCorte) p.fechaCorte = formatDisplayDate(p.fechaCorte);
+        if (p.fechaEntrega) p.fechaEntrega = formatDisplayDate(p.fechaEntrega);
+      });
+    }
+  });
+  if (state.sales && Array.isArray(state.sales)) {
+    state.sales.forEach(s => {
+      if (s.fecha) s.fecha = formatDisplayDate(s.fecha);
+    });
+  }
 }
 
 function formatYMD(date) {
@@ -478,6 +524,7 @@ function loadState() {
     a.plataforma = normalizePlatformName(a.plataforma);
   });
   ensureAccountUniqueIds();
+  normalizeAllDates();
   saveAccounts();
   
   if (savedCli) {
@@ -527,6 +574,7 @@ function loadState() {
 }
 
 function saveAccounts() {
+  normalizeAllDates();
   localStorage.setItem('jmc_accounts', JSON.stringify(state.accounts));
   scheduleFirebaseSync();
 }
@@ -917,7 +965,7 @@ function renderAccounts() {
             <div class="grid grid-cols-3 gap-2 p-2 bg-slate-950/40 rounded-xl border border-slate-800/50 text-[11px] mb-1">
               <div>
                 <span class="text-slate-500 block text-[9px] uppercase font-semibold">Entrega</span>
-                <span class="text-slate-300 font-medium truncate block">${escapeHtml(item.fechaEntrega)}</span>
+                <span class="text-slate-300 font-medium truncate block">${escapeHtml(formatDisplayDate(item.fechaEntrega))}</span>
               </div>
               <div>
                 <span class="text-slate-500 block text-[9px] uppercase font-semibold">Duración</span>
@@ -926,7 +974,7 @@ function renderAccounts() {
               <div>
                 <span class="text-slate-500 block text-[9px] uppercase font-semibold">Vencimiento</span>
                 <span class="font-bold ${item.dateInfo.status === 'vencidos' ? 'text-red-400' : item.dateInfo.status === 'hoy' ? 'text-amber-400' : 'text-slate-200'}">
-                  ${escapeHtml(item.fechaCorte)}
+                  ${escapeHtml(formatDisplayDate(item.fechaCorte))}
                 </span>
               </div>
             </div>
@@ -1039,7 +1087,7 @@ function renderAccounts() {
                 ${platConf.isPersonal ? 'Perfil Personal:' : 'Cuenta Completa:'} ${acc.dueno || (perfiles[0]?.cliente) || 'Sin Asignar'}
               </p>
               <p class="text-[10px] text-slate-400">
-                Tarifa: <strong class="text-emerald-400">$${standardPrice.toFixed(2)}</strong> | Entrega: ${acc.fechaEntrega || 'N/A'}
+                Tarifa: <strong class="text-emerald-400">$${standardPrice.toFixed(2)}</strong> | Entrega: ${formatDisplayDate(acc.fechaEntrega)}
               </p>
             </div>
           </div>
@@ -1086,7 +1134,7 @@ function renderAccounts() {
                   <div class="flex items-center justify-between text-[11px] pt-1 border-t border-slate-700/40">
                     <div class="flex items-center gap-1 text-slate-400 font-mono text-[10px]">
                       <i data-lucide="calendar" class="w-3 h-3 text-slate-500"></i>
-                      <span>Vence: <strong class="text-slate-200">${escapeHtml(pCorte)}</strong></span>
+                      <span>Vence: <strong class="text-slate-200">${escapeHtml(formatDisplayDate(pCorte))}</strong></span>
                     </div>
                     <span class="px-2 py-0.5 rounded-md text-[10px] font-bold ${pDateInfo.badgeClass}">
                       ${pDateInfo.label}
@@ -1134,7 +1182,7 @@ function renderAccounts() {
             <div class="flex items-center gap-1.5">
               <span class="px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center gap-1 ${providerDateInfo.badgeClass}" title="Renovación con Proveedor">
                 <i data-lucide="truck" class="w-3.5 h-3.5"></i>
-                <span>Prov: ${escapeHtml(acc.fechaCorte || 'Sin fecha')}</span>
+                <span>Prov: ${escapeHtml(formatDisplayDate(acc.fechaCorte))}</span>
               </span>
             </div>
           </div>
@@ -1548,7 +1596,7 @@ function renderCorreos() {
             <div>
               <div class="font-mono font-bold text-slate-100 text-xs flex items-center gap-1.5">
                 <i data-lucide="calendar" class="w-3.5 h-3.5 text-slate-400"></i>
-                <span>${escapeHtml(acc.fechaCorte || 'Sin fecha')}</span>
+                <span>${escapeHtml(formatDisplayDate(acc.fechaCorte))}</span>
               </div>
               <div class="mt-1">
                 <span class="px-2 py-0.5 rounded-md text-[10px] font-bold ${dateInfo.badgeClass}">
@@ -1617,7 +1665,7 @@ function renderCorreos() {
         <div class="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800/60 flex items-center justify-between text-xs">
           <div>
             <span class="text-[10px] text-slate-400 uppercase font-semibold block">Renovación Proveedor:</span>
-            <span class="font-mono font-bold text-slate-200 text-xs">${escapeHtml(acc.fechaCorte || 'Sin fecha')}</span>
+            <span class="font-mono font-bold text-slate-200 text-xs">${escapeHtml(formatDisplayDate(acc.fechaCorte))}</span>
           </div>
           <div class="flex items-center gap-2">
             <span class="px-2 py-0.5 rounded-md text-[10px] font-bold ${dateInfo.badgeClass}">
@@ -1733,26 +1781,36 @@ function renderEditCorreoPerfiles(acc) {
   let html = '';
   for (let i = 1; i <= cap; i++) {
     const p = (acc.perfiles || []).find(x => x.num === i) || { num: i, cliente: '', telefono: '', pin: '', fechaCorte: '' };
-    const isOccupied = (p.cliente && p.cliente.trim() !== '') || (p.raw && p.raw.trim() !== '');
+    const isOccupied = Boolean((p.cliente && p.cliente.trim() !== '') || (p.raw && p.raw.trim() !== ''));
     const clientName = p.cliente || p.raw || '';
-    const pCorte = p.fechaCorte || acc.fechaCorte || '';
-    const pCorteYMD = formatYMD(parseDMY(pCorte) || new Date());
+    
+    // Si tiene cliente, mostrar su fecha individual de cliente. Si no tiene cliente, dejar la fecha vacía (NO copiar fecha de proveedor)
+    let pCorteYMD = '';
+    if (isOccupied) {
+      if (p.fechaCorte) {
+        const d = parseDMY(p.fechaCorte);
+        pCorteYMD = d ? formatYMD(d) : '';
+      } else {
+        // Por defecto 30 días para un cliente nuevo
+        pCorteYMD = formatYMD(addDaysToDate(new Date(), 30));
+      }
+    }
 
     html += `
-      <div class="flex items-center gap-2 bg-slate-950/80 border ${isOccupied ? 'border-slate-800' : 'border-emerald-500/30'} rounded-xl p-2.5 transition flex-wrap sm:flex-nowrap">
-        <span class="w-8 h-8 rounded-lg ${isOccupied ? 'bg-indigo-600/20 text-indigo-400' : 'bg-emerald-600/20 text-emerald-400'} font-mono font-bold flex items-center justify-center shrink-0 text-xs">
+      <div class="flex items-center gap-2 bg-slate-950/80 border ${isOccupied ? 'border-slate-800' : 'border-dashed border-slate-800'} rounded-xl p-2.5 transition flex-wrap sm:flex-nowrap">
+        <span class="w-8 h-8 rounded-lg ${isOccupied ? 'bg-indigo-600/20 text-indigo-400' : 'bg-slate-800 text-slate-500'} font-mono font-bold flex items-center justify-center shrink-0 text-xs">
           #${i}
         </span>
         <div class="flex-1 min-w-[130px]">
-          <input type="text" id="edit-slot-cliente-${i}" value="${escapeHtml(clientName)}" placeholder="Nombre del cliente..." class="w-full bg-slate-900 border border-slate-800 focus:border-indigo-500 rounded-lg px-2.5 py-1.5 text-slate-100 text-xs outline-none">
+          <input type="text" id="edit-slot-cliente-${i}" value="${escapeHtml(clientName)}" oninput="onEditSlotClienteChange(${i})" placeholder="Nombre del cliente (o dejar libre...)" class="w-full bg-slate-900 border border-slate-800 focus:border-indigo-500 rounded-lg px-2.5 py-1.5 text-slate-100 text-xs outline-none">
         </div>
         <div class="w-28 sm:w-32">
           <input type="text" id="edit-slot-tel-${i}" value="${escapeHtml(p.telefono || '')}" placeholder="Teléfono..." class="w-full bg-slate-900 border border-slate-800 focus:border-indigo-500 rounded-lg px-2.5 py-1.5 text-slate-100 text-xs outline-none font-mono">
         </div>
         <div class="w-32 sm:w-36">
-          <input type="date" id="edit-slot-corte-${i}" value="${pCorteYMD}" class="w-full bg-slate-900 border border-slate-800 focus:border-indigo-500 rounded-lg px-2 py-1.5 text-slate-100 text-xs outline-none font-mono" title="Fecha de Vencimiento de este Perfil">
+          <input type="date" id="edit-slot-corte-${i}" value="${pCorteYMD}" class="w-full bg-slate-900 border border-slate-800 focus:border-indigo-500 rounded-lg px-2 py-1.5 text-slate-100 text-xs outline-none font-mono" title="Fecha de Vencimiento de este Cliente">
         </div>
-        <button type="button" onclick="document.getElementById('edit-slot-cliente-${i}').value=''; document.getElementById('edit-slot-tel-${i}').value='';" class="p-1.5 hover:bg-slate-800 text-slate-500 hover:text-rose-400 rounded-lg transition shrink-0" title="Dejar este perfil libre">
+        <button type="button" onclick="clearEditSlot(${i})" class="p-1.5 hover:bg-slate-800 text-slate-500 hover:text-rose-400 rounded-lg transition shrink-0" title="Dejar este perfil libre">
           <i data-lucide="user-x" class="w-4 h-4"></i>
         </button>
       </div>
@@ -1761,6 +1819,28 @@ function renderEditCorreoPerfiles(acc) {
 
   container.innerHTML = html;
   lucide.createIcons();
+}
+
+function onEditSlotClienteChange(slotNum) {
+  const nameEl = document.getElementById('edit-slot-cliente-' + slotNum);
+  const corteEl = document.getElementById('edit-slot-corte-' + slotNum);
+  if (!nameEl || !corteEl) return;
+  const name = nameEl.value.trim();
+  if (name && !corteEl.value) {
+    // Si se escribe un cliente y la fecha estaba vacía, pre-llenar con 30 días a partir de hoy
+    corteEl.value = formatYMD(addDaysToDate(new Date(), 30));
+  } else if (!name) {
+    corteEl.value = '';
+  }
+}
+
+function clearEditSlot(slotNum) {
+  const cli = document.getElementById('edit-slot-cliente-' + slotNum);
+  const tel = document.getElementById('edit-slot-tel-' + slotNum);
+  const corte = document.getElementById('edit-slot-corte-' + slotNum);
+  if (cli) cli.value = '';
+  if (tel) tel.value = '';
+  if (corte) corte.value = '';
 }
 
 function onEditCorreoCapacidadChange(newVal) {
@@ -1774,8 +1854,19 @@ function onEditCorreoCapacidadChange(newVal) {
   for (let i = 1; i <= 10; i++) {
     const cliEl = document.getElementById('edit-slot-cliente-' + i);
     const telEl = document.getElementById('edit-slot-tel-' + i);
+    const corteEl = document.getElementById('edit-slot-corte-' + i);
     if (cliEl) {
-      currentSlots.push({ num: i, cliente: cliEl.value.trim(), telefono: telEl ? telEl.value.trim() : '' });
+      let formattedCorte = '';
+      if (corteEl && corteEl.value) {
+        const parts = corteEl.value.split('-');
+        formattedCorte = parts[2] + '/' + parts[1] + '/' + parts[0];
+      }
+      currentSlots.push({
+        num: i,
+        cliente: cliEl.value.trim(),
+        telefono: telEl ? telEl.value.trim() : '',
+        fechaCorte: formattedCorte
+      });
     }
   }
 
@@ -1785,12 +1876,17 @@ function onEditCorreoCapacidadChange(newVal) {
     perfiles: []
   };
   for (let i = 1; i <= cap; i++) {
-    const found = currentSlots.find(s => s.num === i) || (acc.perfiles || []).find(p => p.num === i);
+    const cur = currentSlots.find(s => s.num === i);
+    const orig = (acc.perfiles || []).find(p => p.num === i);
+    const cliente = cur ? cur.cliente : (orig ? orig.cliente : '');
+    const telefono = cur ? cur.telefono : (orig ? orig.telefono : '');
+    const fechaCorte = (cur && cur.fechaCorte) ? cur.fechaCorte : (orig ? orig.fechaCorte : '');
     tempAcc.perfiles.push({
       num: i,
-      cliente: found ? found.cliente : '',
-      telefono: found ? found.telefono : '',
-      raw: found ? found.cliente : ''
+      cliente: cliente,
+      telefono: telefono,
+      fechaCorte: fechaCorte,
+      raw: cliente
     });
   }
   renderEditCorreoPerfiles(tempAcc);
@@ -1812,24 +1908,60 @@ function saveEditCorreoForm(e) {
   }
 
   const expParts = newExpiryYMD.split('-');
-  const formattedExpiry = expParts[2] + '/' + expParts[1] + '/' + expParts[0];
+  const formattedProviderExpiry = expParts[2] + '/' + expParts[1] + '/' + expParts[0];
 
   const perfiles = [];
   for (let i = 1; i <= newCap; i++) {
     const cliEl = document.getElementById('edit-slot-cliente-' + i);
     const telEl = document.getElementById('edit-slot-tel-' + i);
+    const corteEl = document.getElementById('edit-slot-corte-' + i);
     const cliente = cliEl ? cliEl.value.trim() : '';
     const telefono = telEl ? telEl.value.trim() : '';
-    perfiles.push({
-      num: i,
-      cliente: cliente,
-      telefono: telefono,
-      raw: cliente
-    });
+    const corteVal = corteEl ? corteEl.value : '';
+
+    const existingP = (acc.perfiles || []).find(x => x.num === i);
+
+    if (cliente) {
+      let formattedClientCorte = '';
+      if (corteVal) {
+        const parts = corteVal.split('-');
+        formattedClientCorte = parts[2] + '/' + parts[1] + '/' + parts[0];
+      } else if (existingP && existingP.fechaCorte) {
+        formattedClientCorte = existingP.fechaCorte;
+      } else {
+        formattedClientCorte = formatDMY(addDaysToDate(new Date(), 30));
+      }
+
+      const clientEntrega = (existingP && existingP.fechaEntrega) ? existingP.fechaEntrega : formatDMY(new Date());
+      const clientDias = (existingP && existingP.dias) ? existingP.dias : 30;
+
+      perfiles.push({
+        num: i,
+        cliente: cliente,
+        telefono: telefono,
+        pin: existingP ? (existingP.pin || '') : '',
+        fechaEntrega: clientEntrega,
+        dias: clientDias,
+        fechaCorte: formattedClientCorte,
+        raw: telefono ? (cliente + ' - ' + telefono) : cliente
+      });
+    } else {
+      // Perfil libre: sin fecha de cliente
+      perfiles.push({
+        num: i,
+        cliente: '',
+        telefono: '',
+        pin: '',
+        fechaEntrega: '',
+        dias: 30,
+        fechaCorte: '',
+        raw: ''
+      });
+    }
   }
 
   acc.correo = newEmail;
-  acc.fechaCorte = formattedExpiry;
+  acc.fechaCorte = formattedProviderExpiry; // Solo guarda la fecha del proveedor en la cuenta
   acc.capacidad = newCap;
   acc.numPerfiles = newCap;
   acc.perfiles = perfiles;
@@ -1838,7 +1970,6 @@ function saveEditCorreoForm(e) {
     acc.dueno = perfiles[0].cliente + (perfiles[0].telefono ? (' - ' + perfiles[0].telefono) : '');
   }
 
-  ensureAccountProfileSlots(acc);
   saveAccounts();
 
   closeModal('edit-correo-modal');
@@ -1888,7 +2019,7 @@ function openWhatsAppModal(accId, perfilIdentifier) {
   document.getElementById('wa-client-name').value = clienteNombre;
   document.getElementById('wa-client-phone').value = cleanPhone;
   document.getElementById('wa-service-name').textContent = `${acc.plataforma} (${perfilLabel})`;
-  document.getElementById('wa-expiry-date').textContent = fechaCorteCliente;
+  document.getElementById('wa-expiry-date').textContent = formatDisplayDate(fechaCorteCliente);
   
   const dateInfo = getDaysUntil(fechaCorteCliente);
   let templateType = 'aviso';
@@ -1905,7 +2036,7 @@ function updateWhatsAppMessageText(type) {
   if (!state.whatsappData) return;
   const { acc, clienteNombre, perfilLabel } = state.whatsappData;
   const name = document.getElementById('wa-client-name').value || clienteNombre || 'Estimado cliente';
-  const corte = (state.whatsappData && state.whatsappData.fechaCorteCliente) || acc.fechaCorte || 'pronto';
+  const corte = formatDisplayDate((state.whatsappData && state.whatsappData.fechaCorteCliente) || acc.fechaCorte || 'pronto');
   const price = getDefaultPrice(acc.plataforma, acc.dias || 30);
   
   let msg = '';
@@ -1963,7 +2094,7 @@ function openRenewModal(accId) {
   const pricing = getCatalogPriceAndInvestment(acc.plataforma, 30, acc);
   
   document.getElementById('renew-acc-id').textContent = `${acc.plataforma} (${acc.id})`;
-  document.getElementById('renew-current-corte').textContent = acc.fechaCorte || 'Sin fecha';
+  document.getElementById('renew-current-corte').textContent = formatDisplayDate(acc.fechaCorte);
   document.getElementById('renew-days').value = '30';
   document.getElementById('renew-new-corte').value = formatYMD(newCorte);
   document.getElementById('renew-sale-price').value = pricing.price.toFixed(2);
@@ -2885,7 +3016,7 @@ function renderClients() {
                 <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-medium bg-slate-800 border border-slate-700 text-slate-300">
                   <span class="font-bold text-indigo-400">${s.plataforma}</span>
                   <span class="text-slate-500">(${s.cuentaId})</span>
-                  <span class="${dInfo.status === 'vencidos' ? 'text-red-400 font-bold' : dInfo.status === 'hoy' ? 'text-amber-400 font-bold' : 'text-slate-400'}">${s.fechaCorte}</span>
+                  <span class="${dInfo.status === 'vencidos' ? 'text-red-400 font-bold' : dInfo.status === 'hoy' ? 'text-amber-400 font-bold' : 'text-slate-400'}">${formatDisplayDate(s.fechaCorte)}</span>
                 </span>
               `;
             }).join('')}
@@ -2947,7 +3078,7 @@ function renderAccounting() {
   } else {
     salesTable.innerHTML = state.sales.map((s, idx) => `
       <tr class="border-b border-slate-800 hover:bg-slate-800/40 text-xs">
-        <td class="py-2.5 px-4 font-mono text-slate-400">${s.fecha}</td>
+        <td class="py-2.5 px-4 font-mono text-slate-400">${formatDisplayDate(s.fecha)}</td>
         <td class="py-2.5 px-4 font-semibold text-slate-200">${s.plataforma}</td>
         <td class="py-2.5 px-4 text-slate-400">${s.tipo}</td>
         <td class="py-2.5 px-4 font-mono text-emerald-400 font-bold">$ ${(s.totalVenta || 0).toFixed(2)}</td>
