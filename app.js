@@ -1089,6 +1089,7 @@ function renderCorreos() {
   let rowsHtml = '';
   let mobileCardsHtml = '';
   filtered.forEach(acc => {
+    const accKey = acc._uid || acc.id;
     const norm = normalizePlatformName(acc.plataforma);
     const platConf = PLATFORMS_CONFIG.find(p => p.name === norm) || { color: 'indigo', badgeColor: 'bg-indigo-600/30 text-indigo-300' };
     const info = getAccountAvailabilityInfo(acc);
